@@ -9,6 +9,10 @@ import (
 	"github.com/gazizov-ai/online-checkers/pkg/config"
 	"github.com/gazizov-ai/online-checkers/pkg/db"
 	"github.com/gazizov-ai/online-checkers/pkg/httpx"
+	"github.com/gazizov-ai/online-checkers/services/auth/internal/handler"
+	"github.com/gazizov-ai/online-checkers/services/auth/internal/identity"
+	"github.com/gazizov-ai/online-checkers/services/auth/internal/repository"
+	"github.com/gazizov-ai/online-checkers/services/auth/internal/service"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -24,6 +28,31 @@ func main() {
 		log.Fatalf("connect database: %v", err)
 	}
 	defer database.Close()
+
+	userRepo := repository.NewPostgresUserRepository(database)
+
+	if cfg.JWTPrivateKeyPath == "" {
+		log.Fatal("JWT_PRIVATE_KEY_PATH is required")
+	}
+
+	privateKey, err := identity.LoadRSAPrivateKey(cfg.JWTPrivateKeyPath)
+	if err != nil {
+		log.Fatalf("load RSA private key: %v", err)
+	}
+
+	issuer := identity.NewRSAIssuer(
+		privateKey,
+		cfg.JWTKeyID,
+		cfg.OIDCIssuer,
+		cfg.OIDCAudience,
+		cfg.AccessTokenTTL,
+		cfg.IDTokenTTL,
+	)
+
+	authService := service.NewAuthService(userRepo, issuer)
+	authHandler := handler.NewAuthHandler(authService)
+
+	identityHandler := handler.NewIdentityHandler(issuer)
 
 	r := chi.NewRouter()
 
@@ -58,6 +87,19 @@ func main() {
 			"service": cfg.ServiceName,
 		})
 	})
+
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Post("/register", authHandler.Register)
+		r.Post("/login", authHandler.Login)
+
+		r.Group(func(r chi.Router) {
+			r.Use(handler.AuthMiddleware(issuer))
+			r.Get("/me", authHandler.Me)
+		})
+	})
+
+	r.Get("/.well-known/jwks.json", identityHandler.JWKS)
+	r.Get("/.well-known/openid-configuration", identityHandler.Discovery)
 
 	addr := ":" + cfg.HTTPPort
 

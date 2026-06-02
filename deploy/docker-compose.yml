@@ -22,10 +22,18 @@ services:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/checkers?sslmode=disable
       JWT_SECRET: dev-secret
       KAFKA_BROKERS: redpanda:29092
+      JWT_PRIVATE_KEY_PATH: /run/secrets/jwt_private.pem
+      JWT_KEY_ID: dev-key-1
+      OIDC_ISSUER: http://localhost:8081
+      OIDC_AUDIENCE: online-checkers
+      ACCESS_TOKEN_TTL: 15m
+      ID_TOKEN_TTL: 15m
     ports:
       - "8081:8081"
     depends_on:
       - postgres
+    volumes:
+      - ../secrets/jwt_private.pem:/run/secrets/jwt_private.pem:ro
 
   matchmaking-service:
     build:

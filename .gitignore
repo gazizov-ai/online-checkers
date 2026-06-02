@@ -10,6 +10,9 @@
 *.test
 *.out
 
+# Secrets
+secrets/
+
 # Go coverage
 coverage.out
 coverage.html
