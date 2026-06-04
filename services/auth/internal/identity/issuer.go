@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	appjwt "github.com/gazizov-ai/online-checkers/pkg/jwt"
 	"github.com/gazizov-ai/online-checkers/services/auth/internal/service"
-	"github.com/golang-jwt/jwt/v5"
+	githubjwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
@@ -38,14 +39,6 @@ func NewRSAIssuer(
 	}
 }
 
-type Claims struct {
-	TokenUse          string  `json:"token_use"`
-	PreferredUsername string  `json:"preferred_username"`
-	Email             *string `json:"email,omitempty"`
-
-	jwt.RegisteredClaims
-}
-
 func (i *RSAIssuer) IssueTokens(ctx context.Context, subject service.TokenSubject) (*service.TokenPair, error) {
 	accessToken, err := i.issueToken(subject, "access", i.accessTokenTTL)
 	if err != nil {
@@ -69,21 +62,22 @@ func (i *RSAIssuer) issueToken(subject service.TokenSubject, tokenType string, t
 	now := time.Now().UTC()
 	expiresAt := now.Add(ttl)
 	jti := uuid.NewString()
-	claims := Claims{
+	claims := appjwt.Claims{
 		TokenUse:          tokenType,
 		PreferredUsername: subject.Username,
 		Email:             subject.Email,
-		RegisteredClaims: jwt.RegisteredClaims{
+		RegisteredClaims: githubjwt.RegisteredClaims{
 			Issuer:    i.issuer,
 			Subject:   subject.UserID.String(),
-			Audience:  jwt.ClaimStrings{i.audience},
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(now),
-			NotBefore: jwt.NewNumericDate(now),
+			Audience:  githubjwt.ClaimStrings{i.audience},
+			ExpiresAt: githubjwt.NewNumericDate(expiresAt),
+			IssuedAt:  githubjwt.NewNumericDate(now),
+			NotBefore: githubjwt.NewNumericDate(now),
 			ID:        jti,
 		},
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+
+	token := githubjwt.NewWithClaims(githubjwt.SigningMethodRS256, claims)
 	token.Header["kid"] = i.keyID
 	token.Header["typ"] = "JWT"
 	signed, err := token.SignedString(i.privateKey)

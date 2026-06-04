@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gazizov-ai/online-checkers/pkg/httpx"
+	appjwt "github.com/gazizov-ai/online-checkers/pkg/jwt"
 	"github.com/gazizov-ai/online-checkers/services/auth/internal/service"
 )
 
@@ -68,6 +69,15 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     appjwt.AccessTokenCookieName,
+		Value:    result.Tokens.AccessToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(result.Tokens.ExpiresIn),
+	})
 	_ = httpx.WriteJSON(w, http.StatusOK, LoginResponse{
 		AccessToken: result.Tokens.AccessToken,
 		IDToken:     result.Tokens.IDToken,
@@ -78,7 +88,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
-	userID, ok := userIDFromContext(r.Context())
+	userID, ok := appjwt.UserIDFromContext(r.Context())
 	if !ok {
 		_ = httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
 		return

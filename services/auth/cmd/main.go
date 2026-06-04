@@ -9,6 +9,7 @@ import (
 	"github.com/gazizov-ai/online-checkers/pkg/config"
 	"github.com/gazizov-ai/online-checkers/pkg/db"
 	"github.com/gazizov-ai/online-checkers/pkg/httpx"
+	appjwt "github.com/gazizov-ai/online-checkers/pkg/jwt"
 	"github.com/gazizov-ai/online-checkers/services/auth/internal/handler"
 	"github.com/gazizov-ai/online-checkers/services/auth/internal/identity"
 	"github.com/gazizov-ai/online-checkers/services/auth/internal/repository"
@@ -93,7 +94,7 @@ func main() {
 		r.Post("/login", authHandler.Login)
 
 		r.Group(func(r chi.Router) {
-			r.Use(handler.AuthMiddleware(issuer))
+			r.Use(appjwt.Middleware(issuer))
 			r.Get("/me", authHandler.Me)
 		})
 	})

@@ -1,4 +1,4 @@
-package identity
+package jwt
 
 import "errors"
 

@@ -4,11 +4,12 @@ import (
 	"net/http"
 
 	"github.com/gazizov-ai/online-checkers/pkg/httpx"
+	appjwt "github.com/gazizov-ai/online-checkers/pkg/jwt"
 	"github.com/gazizov-ai/online-checkers/services/auth/internal/identity"
 )
 
 type IdentityProvider interface {
-	JWKS() identity.JWKSResponse
+	JWKS() appjwt.JWKSResponse
 	DiscoveryDocument() identity.DiscoveryDocument
 }
 

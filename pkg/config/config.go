@@ -15,6 +15,7 @@ type Config struct {
 	JWTSecret         string
 	OIDCIssuer        string
 	OIDCAudience      string
+	JWKSURL           string
 	JWTPrivateKeyPath string
 	JWTKeyID          string
 	AccessTokenTTL    time.Duration
@@ -30,6 +31,7 @@ func Load() (*Config, error) {
 		JWTSecret:         getEnv("JWT_SECRET", ""),
 		OIDCIssuer:        getEnv("OIDC_ISSUER", "http://localhost:8081"),
 		OIDCAudience:      getEnv("OIDC_AUDIENCE", "online-checkers"),
+		JWKSURL:           getEnv("JWKS_URL", "http://localhost:8081/.well-known/jwks.json"),
 		JWTPrivateKeyPath: getEnv("JWT_PRIVATE_KEY_PATH", ""),
 		JWTKeyID:          getEnv("JWT_KEY_ID", "dev-key-1"),
 	}
