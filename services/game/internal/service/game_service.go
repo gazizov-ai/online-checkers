@@ -11,13 +11,28 @@ import (
 )
 
 type GameService struct {
-	repo repository.GameRepository
+	repo                  repository.GameRepository
+	gameFinishedPublisher GameFinishedPublisher
 }
 
-func NewGameService(repo repository.GameRepository) *GameService {
+func NewGameService(repo repository.GameRepository, gameFinishedPublisher GameFinishedPublisher) *GameService {
 	return &GameService{
-		repo: repo,
+		repo:                  repo,
+		gameFinishedPublisher: gameFinishedPublisher,
 	}
+}
+
+type GameFinishedPublisher interface {
+	PublishGameFinished(ctx context.Context, event GameFinishedEvent) error
+}
+
+type GameFinishedEvent struct {
+	EventID       uuid.UUID
+	GameID        uuid.UUID
+	WhitePlayerID uuid.UUID
+	BlackPlayerID uuid.UUID
+	WinnerID      uuid.UUID
+	FinishedAt    time.Time
 }
 
 type CreateGameInput struct {
@@ -146,6 +161,21 @@ func (s *GameService) ApplyMove(ctx context.Context, input ApplyMoveInput) (Appl
 
 	if err := s.repo.SaveGameState(ctx, game); err != nil {
 		return ApplyMoveOutput{}, err
+	}
+
+	if result.GameFinished && game.WinnerID != nil && game.FinishedAt != nil && s.gameFinishedPublisher != nil {
+		event := GameFinishedEvent{
+			EventID:       uuid.New(),
+			GameID:        game.ID,
+			WhitePlayerID: game.WhitePlayerID,
+			BlackPlayerID: game.BlackPlayerID,
+			WinnerID:      *game.WinnerID,
+			FinishedAt:    *game.FinishedAt,
+		}
+
+		if err := s.gameFinishedPublisher.PublishGameFinished(ctx, event); err != nil {
+			return ApplyMoveOutput{}, err
+		}
 	}
 
 	return ApplyMoveOutput{

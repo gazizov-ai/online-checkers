@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package online_checkers.events.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/gazizov-ai/online-checkers/gen/events/v1;eventsv1";
+
+message GameFinished {
+  string event_id = 1;
+  string game_id = 2;
+  string white_player_id = 3;
+  string black_player_id = 4;
+  string winner_id = 5;
+  google.protobuf.Timestamp finished_at = 6;
+}

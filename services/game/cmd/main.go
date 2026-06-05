@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	gamev1 "github.com/gazizov-ai/online-checkers/gen/game/v1"
@@ -14,6 +15,8 @@ import (
 	"github.com/gazizov-ai/online-checkers/pkg/db"
 	"github.com/gazizov-ai/online-checkers/pkg/httpx"
 	appjwt "github.com/gazizov-ai/online-checkers/pkg/jwt"
+	appkafka "github.com/gazizov-ai/online-checkers/pkg/kafka"
+	"github.com/gazizov-ai/online-checkers/services/game/internal/events"
 	gamegrpc "github.com/gazizov-ai/online-checkers/services/game/internal/grpc"
 	"github.com/gazizov-ai/online-checkers/services/game/internal/handler"
 	"github.com/gazizov-ai/online-checkers/services/game/internal/repository"
@@ -36,8 +39,22 @@ func main() {
 	}
 	defer database.Close()
 
+	brokers := strings.Split(cfg.KafkaBrokers, ",")
+
+	gameFinishedProducer := appkafka.NewProducer(appkafka.ProducerConfig{
+		Brokers: brokers,
+		Topic:   cfg.GameFinishedTopic,
+	})
+	defer func() {
+		if err := gameFinishedProducer.Close(); err != nil {
+			log.Printf("close game finished producer: %v", err)
+		}
+	}()
+
+	gameFinishedPublisher := events.NewGameFinishedPublisher(gameFinishedProducer)
+
 	gameRepo := repository.NewPostgresGameRepository(database)
-	gameService := service.NewGameService(gameRepo)
+	gameService := service.NewGameService(gameRepo, gameFinishedPublisher)
 	roomManager := gamews.NewRoomManager()
 
 	jwksCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

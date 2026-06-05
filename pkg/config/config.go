@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -15,6 +16,8 @@ type Config struct {
 	GameServiceGRPCAddr string
 	DatabaseURL         string
 	KafkaBrokers        string
+	GameFinishedTopic   string
+	RatingConsumerGroup string
 	JWTSecret           string
 	OIDCIssuer          string
 	OIDCAudience        string
@@ -63,6 +66,8 @@ func Load() (*Config, error) {
 		GameServiceGRPCAddr: getEnv("GAME_SERVICE_GRPC_ADDR", "localhost:9093"),
 		DatabaseURL:         getEnv("DATABASE_URL", ""),
 		KafkaBrokers:        getEnv("KAFKA_BROKERS", ""),
+		GameFinishedTopic:   getEnv("GAME_FINISHED_TOPIC", "game.finished"),
+		RatingConsumerGroup: getEnv("RATING_CONSUMER_GROUP", "rating-service"),
 		JWTSecret:           getEnv("JWT_SECRET", ""),
 		OIDCIssuer:          getEnv("OIDC_ISSUER", "http://localhost:8081"),
 		OIDCAudience:        getEnv("OIDC_AUDIENCE", "online-checkers"),
@@ -90,6 +95,14 @@ func Load() (*Config, error) {
 	gameServiceGRPCAddr := getEnv("GAME_SERVICE_GRPC_ADDR", "localhost:9093")
 	if err := validateHostPort("GAME_SERVICE_GRPC_ADDR", gameServiceGRPCAddr); err != nil {
 		return nil, err
+	}
+
+	if strings.TrimSpace(cfg.GameFinishedTopic) == "" {
+		return nil, fmt.Errorf("GAME_FINISHED_TOPIC is required")
+	}
+
+	if strings.TrimSpace(cfg.RatingConsumerGroup) == "" {
+		return nil, fmt.Errorf("RATING_CONSUMER_GROUP is required")
 	}
 
 	accessTokenTTL, err := time.ParseDuration(getEnv("ACCESS_TOKEN_TTL", "15m"))
