@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package online_checkers.game.v1;
+
+option go_package = "github.com/gazizov-ai/online-checkers/gen/game/v1;gamev1";
+
+service GameService {
+  rpc CreateGame(CreateGameRequest) returns (CreateGameResponse);
+}
+
+message CreateGameRequest {
+  string white_player_id = 1;
+  string black_player_id = 2;
+}
+
+message CreateGameResponse {
+  string game_id = 1;
+}

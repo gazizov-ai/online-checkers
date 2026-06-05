@@ -5,19 +5,23 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
+	gamev1 "github.com/gazizov-ai/online-checkers/gen/game/v1"
 	"github.com/gazizov-ai/online-checkers/pkg/config"
 	"github.com/gazizov-ai/online-checkers/pkg/db"
 	"github.com/gazizov-ai/online-checkers/pkg/httpx"
 	appjwt "github.com/gazizov-ai/online-checkers/pkg/jwt"
+	gamegrpc "github.com/gazizov-ai/online-checkers/services/game/internal/grpc"
 	"github.com/gazizov-ai/online-checkers/services/game/internal/handler"
 	"github.com/gazizov-ai/online-checkers/services/game/internal/repository"
 	"github.com/gazizov-ai/online-checkers/services/game/internal/service"
 	gamews "github.com/gazizov-ai/online-checkers/services/game/internal/websocket"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"google.golang.org/grpc"
 )
 
 func main() {
@@ -94,6 +98,28 @@ func main() {
 	})
 
 	gameHandler.RegisterRoutes(r)
+
+	grpcServer := grpc.NewServer()
+
+	gamev1.RegisterGameServiceServer(
+		grpcServer,
+		gamegrpc.NewGameServer(gameService),
+	)
+
+	grpcAddr := ":" + cfg.GRPCPort
+
+	grpcListener, err := net.Listen("tcp", grpcAddr)
+	if err != nil {
+		log.Fatalf("listen grpc: %v", err)
+	}
+
+	go func() {
+		log.Printf("%s gRPC listening on %s", cfg.ServiceName, grpcAddr)
+
+		if err := grpcServer.Serve(grpcListener); err != nil {
+			log.Fatalf("grpc server error: %v", err)
+		}
+	}()
 
 	addr := ":" + cfg.HTTPPort
 

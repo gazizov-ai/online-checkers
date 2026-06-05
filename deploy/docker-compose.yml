@@ -43,9 +43,11 @@ services:
     environment:
       SERVICE_NAME: matchmaking-service
       HTTP_PORT: 8082
+      GAME_SERVICE_GRPC_ADDR: game-service:9093
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/checkers?sslmode=disable
       JWT_SECRET: dev-secret
       KAFKA_BROKERS: redpanda:29092
+      JWKS_URL: http://auth-service:8081/.well-known/jwks.json
     ports:
       - "8082:8082"
     depends_on:
@@ -59,12 +61,14 @@ services:
     environment:
       SERVICE_NAME: game-service
       HTTP_PORT: 8083
+      GRPC_PORT: 9093
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/checkers?sslmode=disable
       JWT_SECRET: dev-secret
       KAFKA_BROKERS: redpanda:29092
       JWKS_URL: http://auth-service:8081/.well-known/jwks.json
     ports:
       - "8083:8083"
+      - "9093:9093"
     depends_on:
       - postgres
       - auth-service
