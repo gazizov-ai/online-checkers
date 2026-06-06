@@ -3,7 +3,10 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/gazizov-ai/online-checkers/pkg/httpx"
 	appjwt "github.com/gazizov-ai/online-checkers/pkg/jwt"
@@ -38,6 +41,64 @@ type getGameResponse struct {
 	Result        *string                         `json:"result,omitempty"`
 	FinishReason  *string                         `json:"finish_reason,omitempty"`
 	DrawOfferBy   *string                         `json:"draw_offer_by,omitempty"`
+}
+
+type userGameHistoryResponse struct {
+	Items      []userGameHistoryItemResponse `json:"items"`
+	NextCursor *string                       `json:"next_cursor,omitempty"`
+}
+
+type userGameHistoryItemResponse struct {
+	GameID        string `json:"game_id"`
+	WhitePlayerID string `json:"white_player_id"`
+	BlackPlayerID string `json:"black_player_id"`
+	UserColor     string `json:"user_color"`
+
+	Status       string  `json:"status"`
+	Result       *string `json:"result,omitempty"`
+	FinishReason *string `json:"finish_reason,omitempty"`
+	WinnerID     *string `json:"winner_id,omitempty"`
+
+	CreatedAt  string  `json:"created_at"`
+	FinishedAt *string `json:"finished_at,omitempty"`
+}
+
+func toUserGameHistoryResponse(page domain.UserGameHistoryPage) userGameHistoryResponse {
+	items := make([]userGameHistoryItemResponse, 0, len(page.Items))
+
+	for _, item := range page.Items {
+		var winnerID *string
+		if item.WinnerID != nil {
+			value := item.WinnerID.String()
+			winnerID = &value
+		}
+
+		var finishedAt *string
+		if item.FinishedAt != nil {
+			value := item.FinishedAt.Format(time.RFC3339)
+			finishedAt = &value
+		}
+
+		items = append(items, userGameHistoryItemResponse{
+			GameID:        item.GameID.String(),
+			WhitePlayerID: item.WhitePlayerID.String(),
+			BlackPlayerID: item.BlackPlayerID.String(),
+			UserColor:     item.UserColor,
+
+			Status:       item.Status,
+			Result:       item.Result,
+			FinishReason: item.FinishReason,
+			WinnerID:     winnerID,
+
+			CreatedAt:  item.CreatedAt.Format(time.RFC3339),
+			FinishedAt: finishedAt,
+		})
+	}
+
+	return userGameHistoryResponse{
+		Items:      items,
+		NextCursor: page.NextCursor,
+	}
 }
 
 type Handler struct {
@@ -496,4 +557,44 @@ func (h *Handler) handleWSDrawResponse(
 	h.roomManager.DeleteRoom(gameID.String())
 
 	return nil
+}
+
+func (h *Handler) ListUserGames(w http.ResponseWriter, r *http.Request) {
+	requesterID, ok := appjwt.UserIDFromContext(r.Context())
+	if !ok {
+		_ = httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+
+	rawUserID := chi.URLParam(r, "user_id")
+	targetUserID, err := uuid.Parse(rawUserID)
+	if err != nil {
+		_ = httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "invalid user_id")
+		return
+	}
+
+	limit := 20
+	if rawLimit := r.URL.Query().Get("limit"); rawLimit != "" {
+		parsed, err := strconv.Atoi(rawLimit)
+		if err != nil {
+			_ = httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "invalid limit")
+			return
+		}
+		limit = parsed
+	}
+
+	cursor := r.URL.Query().Get("cursor")
+
+	page, err := h.gameService.ListUserGames(r.Context(), targetUserID, requesterID, limit, cursor)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidCursor) {
+			_ = httpx.WriteError(w, http.StatusBadRequest, "invalid_cursor", "invalid cursor")
+			return
+		}
+
+		_ = httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "internal error")
+		return
+	}
+
+	_ = httpx.WriteJSON(w, http.StatusOK, toUserGameHistoryResponse(page))
 }

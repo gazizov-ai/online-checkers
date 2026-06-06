@@ -21,6 +21,8 @@ func NewPostgresGameRepository(db *sqlx.DB) *PostgresGameRepository {
 	return &PostgresGameRepository{db: db}
 }
 
+var _ GameRepository = (*PostgresGameRepository)(nil)
+
 type gameRow struct {
 	ID             uuid.UUID  `db:"id"`
 	WhitePlayerID  uuid.UUID  `db:"white_player_id"`
@@ -61,6 +63,40 @@ type moveHistoryRow struct {
 	PlayerID   uuid.UUID `db:"player_id"`
 	Notation   string    `db:"notation"`
 	CreatedAt  time.Time `db:"created_at"`
+}
+
+type UserGameHistoryItem struct {
+	GameID        uuid.UUID  `db:"game_id"`
+	WhitePlayerID uuid.UUID  `db:"white_player_id"`
+	BlackPlayerID uuid.UUID  `db:"black_player_id"`
+	UserColor     string     `db:"user_color"`
+	Status        string     `db:"status"`
+	Result        *string    `db:"result"`
+	FinishReason  *string    `db:"finish_reason"`
+	WinnerID      *uuid.UUID `db:"winner_id"`
+	CreatedAt     time.Time  `db:"created_at"`
+	FinishedAt    *time.Time `db:"finished_at"`
+}
+
+type GameHistoryCursor struct {
+	Bucket   int
+	SortTime time.Time
+	GameID   uuid.UUID
+}
+
+func userGameHistoryItemToDomain(item UserGameHistoryItem) domain.UserGameHistoryItem {
+	return domain.UserGameHistoryItem{
+		GameID:        item.GameID,
+		WhitePlayerID: item.WhitePlayerID,
+		BlackPlayerID: item.BlackPlayerID,
+		UserColor:     item.UserColor,
+		Status:        item.Status,
+		Result:        item.Result,
+		FinishReason:  item.FinishReason,
+		WinnerID:      item.WinnerID,
+		CreatedAt:     item.CreatedAt,
+		FinishedAt:    item.FinishedAt,
+	}
 }
 
 func moveRowToDomain(row moveRow) domain.Move {
@@ -404,4 +440,52 @@ func (r *PostgresGameRepository) ListMoveHistory(
 	return items, nil
 }
 
-var _ GameRepository = (*PostgresGameRepository)(nil)
+func (r *PostgresGameRepository) ListGamesByUser(
+	ctx context.Context,
+	userID uuid.UUID,
+	includeActive bool,
+	limit int,
+	offset int,
+) ([]domain.UserGameHistoryItem, error) {
+	const query = `
+		SELECT
+			id AS game_id,
+			white_player_id,
+			black_player_id,
+			CASE
+				WHEN white_player_id = $1 THEN 'white'
+				ELSE 'black'
+			END AS user_color,
+			status,
+			result,
+			finish_reason,
+			winner_id,
+			created_at,
+			finished_at
+		FROM games
+		WHERE
+			(white_player_id = $1 OR black_player_id = $1)
+			AND ($2::boolean OR status = 'finished')
+		ORDER BY
+			CASE WHEN status = 'active' THEN 0 ELSE 1 END ASC,
+			CASE
+				WHEN status = 'active' THEN created_at
+				ELSE finished_at
+			END DESC,
+			id DESC
+		LIMIT $3
+		OFFSET $4
+	`
+
+	var rows []UserGameHistoryItem
+	if err := r.db.SelectContext(ctx, &rows, query, userID, includeActive, limit, offset); err != nil {
+		return nil, err
+	}
+
+	items := make([]domain.UserGameHistoryItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, userGameHistoryItemToDomain(row))
+	}
+
+	return items, nil
+}

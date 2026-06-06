@@ -6,26 +6,40 @@ import (
 	"fmt"
 	"time"
 
+	eventsv1 "github.com/gazizov-ai/online-checkers/gen/events/v1"
 	"github.com/gazizov-ai/online-checkers/services/auth/internal/domain"
 	"github.com/gazizov-ai/online-checkers/services/auth/internal/repository"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type UserRepository interface {
 	CreateUser(ctx context.Context, user domain.User) error
+	CreateUserWithOutboxEvent(ctx context.Context, user domain.User, event domain.OutboxEvent) error
+
 	GetUserByUsername(ctx context.Context, username string) (*domain.User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
-}
 
+	ListPendingOutboxEvents(ctx context.Context, limit int) ([]domain.OutboxEvent, error)
+	MarkOutboxEventPublished(ctx context.Context, eventID uuid.UUID) error
+	MarkOutboxEventFailedAttempt(ctx context.Context, eventID uuid.UUID, errMessage string) error
+}
 type AuthService struct {
-	users  UserRepository
-	tokens TokenIssuer
+	users               UserRepository
+	tokens              TokenIssuer
+	userRegisteredTopic string
 }
 
-func NewAuthService(users UserRepository, tokens TokenIssuer) *AuthService {
+func NewAuthService(
+	users UserRepository,
+	tokens TokenIssuer,
+	userRegisteredTopic string,
+) *AuthService {
 	return &AuthService{
-		users:  users,
-		tokens: tokens,
+		users:               users,
+		tokens:              tokens,
+		userRegisteredTopic: userRegisteredTopic,
 	}
 }
 
@@ -84,7 +98,39 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*domai
 		CreatedAt:    time.Now().UTC(),
 	}
 
-	if err := s.users.CreateUser(ctx, user); err != nil {
+	eventID := uuid.New()
+	registeredEvent := &eventsv1.UserRegistered{
+		EventId:      eventID.String(),
+		UserId:       user.ID.String(),
+		Username:     user.Username,
+		RegisteredAt: timestamppb.New(user.CreatedAt),
+	}
+
+	payload, err := proto.Marshal(registeredEvent)
+	if err != nil {
+		return nil, fmt.Errorf("marshal user registered event: %w", err)
+	}
+
+	outboxEvent := domain.OutboxEvent{
+		ID:            eventID,
+		EventType:     domain.EventTypeUserRegistered,
+		AggregateType: domain.OutboxAggregateUser,
+		AggregateID:   user.ID,
+		Topic:         s.userRegisteredTopic,
+		KafkaKey:      user.ID.String(),
+		Payload:       payload,
+		Headers: map[string]string{
+			"event_type":     domain.EventTypeUserRegistered,
+			"content_type":   "application/protobuf",
+			"schema":         "online_checkers.events.v1.UserRegistered",
+			"schema_version": "v1",
+		},
+		Status:    domain.OutboxStatusPending,
+		Attempts:  0,
+		CreatedAt: user.CreatedAt,
+	}
+
+	if err := s.users.CreateUserWithOutboxEvent(ctx, user, outboxEvent); err != nil {
 		if errors.Is(err, repository.ErrUsernameAlreadyExists) {
 			return nil, ErrUsernameAlreadyTaken
 		}
@@ -93,7 +139,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*domai
 			return nil, ErrEmailAlreadyTaken
 		}
 
-		return nil, fmt.Errorf("create user: %w", err)
+		return nil, fmt.Errorf("create user with outbox event: %w", err)
 	}
 
 	return &user, nil

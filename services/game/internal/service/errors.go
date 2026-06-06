@@ -10,4 +10,5 @@ var (
 	ErrNoDrawOffer              = errors.New("no draw offer")
 	ErrDrawAlreadyOffered       = errors.New("draw already offered")
 	ErrCannotAnswerOwnDrawOffer = errors.New("cannot answer own draw offer")
+	ErrInvalidCursor            = errors.New("invalid cursor")
 )

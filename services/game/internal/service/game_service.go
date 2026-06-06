@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/gazizov-ai/online-checkers/services/game/internal/checkers"
@@ -525,5 +526,49 @@ func (s *GameService) GetMoveHistory(
 
 	return GetMoveHistoryOutput{
 		Items: items,
+	}, nil
+}
+
+func (s *GameService) ListUserGames(
+	ctx context.Context,
+	targetUserID uuid.UUID,
+	requesterID uuid.UUID,
+	limit int,
+	cursor string,
+) (domain.UserGameHistoryPage, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	if limit > 50 {
+		limit = 50
+	}
+
+	offset := 0
+	if cursor != "" {
+		parsed, err := strconv.Atoi(cursor)
+		if err != nil || parsed < 0 {
+			return domain.UserGameHistoryPage{}, ErrInvalidCursor
+		}
+		offset = parsed
+	}
+
+	includeActive := requesterID == targetUserID
+
+	items, err := s.repo.ListGamesByUser(ctx, targetUserID, includeActive, limit+1, offset)
+	if err != nil {
+		return domain.UserGameHistoryPage{}, err
+	}
+
+	var nextCursor *string
+	if len(items) > limit {
+		items = items[:limit]
+		next := strconv.Itoa(offset + limit)
+		nextCursor = &next
+	}
+
+	return domain.UserGameHistoryPage{
+		Items:      items,
+		NextCursor: nextCursor,
 	}, nil
 }

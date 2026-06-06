@@ -114,6 +114,12 @@ func main() {
 		})
 	})
 
+	r.Group(func(r chi.Router) {
+		r.Use(appjwt.Middleware(tokenVerifier))
+
+		r.Get("/api/v1/users/{user_id}/games", gameHandler.ListUserGames)
+	})
+
 	gameHandler.RegisterRoutes(r)
 
 	grpcServer := grpc.NewServer()

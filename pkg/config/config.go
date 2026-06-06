@@ -10,22 +10,24 @@ import (
 )
 
 type Config struct {
-	ServiceName         string
-	HTTPPort            string
-	GRPCPort            string
-	GameServiceGRPCAddr string
-	DatabaseURL         string
-	KafkaBrokers        string
-	GameFinishedTopic   string
-	RatingConsumerGroup string
-	JWTSecret           string
-	OIDCIssuer          string
-	OIDCAudience        string
-	JWKSURL             string
-	JWTPrivateKeyPath   string
-	JWTKeyID            string
-	AccessTokenTTL      time.Duration
-	IDTokenTTL          time.Duration
+	ServiceName          string
+	HTTPPort             string
+	GRPCPort             string
+	GameServiceGRPCAddr  string
+	DatabaseURL          string
+	KafkaBrokers         string
+	GameFinishedTopic    string
+	UserRegisteredTopic  string
+	RatingConsumerGroup  string
+	ProfileConsumerGroup string
+	JWTSecret            string
+	OIDCIssuer           string
+	OIDCAudience         string
+	JWKSURL              string
+	JWTPrivateKeyPath    string
+	JWTKeyID             string
+	AccessTokenTTL       time.Duration
+	IDTokenTTL           time.Duration
 }
 
 func validatePort(name, value string) error {
@@ -60,20 +62,22 @@ func validateHostPort(name, value string) error {
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		ServiceName:         getEnv("SERVICE_NAME", "unknown-service"),
-		HTTPPort:            getEnv("HTTP_PORT", "8080"),
-		GRPCPort:            getEnv("GRPC_PORT", "9090"),
-		GameServiceGRPCAddr: getEnv("GAME_SERVICE_GRPC_ADDR", "localhost:9093"),
-		DatabaseURL:         getEnv("DATABASE_URL", ""),
-		KafkaBrokers:        getEnv("KAFKA_BROKERS", ""),
-		GameFinishedTopic:   getEnv("GAME_FINISHED_TOPIC", "game.finished"),
-		RatingConsumerGroup: getEnv("RATING_CONSUMER_GROUP", "rating-service"),
-		JWTSecret:           getEnv("JWT_SECRET", ""),
-		OIDCIssuer:          getEnv("OIDC_ISSUER", "http://localhost:8081"),
-		OIDCAudience:        getEnv("OIDC_AUDIENCE", "online-checkers"),
-		JWKSURL:             getEnv("JWKS_URL", "http://localhost:8081/.well-known/jwks.json"),
-		JWTPrivateKeyPath:   getEnv("JWT_PRIVATE_KEY_PATH", ""),
-		JWTKeyID:            getEnv("JWT_KEY_ID", "dev-key-1"),
+		ServiceName:          getEnv("SERVICE_NAME", "unknown-service"),
+		HTTPPort:             getEnv("HTTP_PORT", "8080"),
+		GRPCPort:             getEnv("GRPC_PORT", "9090"),
+		GameServiceGRPCAddr:  getEnv("GAME_SERVICE_GRPC_ADDR", "localhost:9093"),
+		DatabaseURL:          getEnv("DATABASE_URL", ""),
+		KafkaBrokers:         getEnv("KAFKA_BROKERS", ""),
+		GameFinishedTopic:    getEnv("GAME_FINISHED_TOPIC", "game.finished"),
+		UserRegisteredTopic:  getEnv("USER_REGISTERED_TOPIC", "user.registered"),
+		RatingConsumerGroup:  getEnv("RATING_CONSUMER_GROUP", "rating-service"),
+		ProfileConsumerGroup: getEnv("PROFILE_CONSUMER_GROUP", "profile-service"),
+		JWTSecret:            getEnv("JWT_SECRET", ""),
+		OIDCIssuer:           getEnv("OIDC_ISSUER", "http://localhost:8081"),
+		OIDCAudience:         getEnv("OIDC_AUDIENCE", "online-checkers"),
+		JWKSURL:              getEnv("JWKS_URL", "http://localhost:8081/.well-known/jwks.json"),
+		JWTPrivateKeyPath:    getEnv("JWT_PRIVATE_KEY_PATH", ""),
+		JWTKeyID:             getEnv("JWT_KEY_ID", "dev-key-1"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -103,6 +107,10 @@ func Load() (*Config, error) {
 
 	if strings.TrimSpace(cfg.RatingConsumerGroup) == "" {
 		return nil, fmt.Errorf("RATING_CONSUMER_GROUP is required")
+	}
+
+	if strings.TrimSpace(cfg.ProfileConsumerGroup) == "" {
+		return nil, fmt.Errorf("PROFILE_CONSUMER_GROUP is required")
 	}
 
 	accessTokenTTL, err := time.ParseDuration(getEnv("ACCESS_TOKEN_TTL", "15m"))

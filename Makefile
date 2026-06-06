@@ -23,15 +23,18 @@ migrate-up:
 	goose -table goose_game_version -dir migrations/game postgres "$(DATABASE_URL)" up
 	goose -table goose_matchmaking_version -dir migrations/matchmaking postgres "$(DATABASE_URL)" up
 	goose -table goose_rating_version -dir migrations/rating postgres "$(DATABASE_URL)" up
+	goose -table goose_profile_version -dir migrations/profile postgres "$(DATABASE_URL)" up
 
 migrate-status:
 	goose -table goose_auth_version -dir migrations/auth postgres "$(DATABASE_URL)" status
 	goose -table goose_game_version -dir migrations/game postgres "$(DATABASE_URL)" status
 	goose -table goose_matchmaking_version -dir migrations/matchmaking postgres "$(DATABASE_URL)" status
 	goose -table goose_rating_version -dir migrations/rating postgres "$(DATABASE_URL)" status
+	goose -table goose_profile_version -dir migrations/profile postgres "$(DATABASE_URL)" status
 
 migrate-down:
 	goose -table goose_rating_version -dir migrations/rating postgres "$(DATABASE_URL)" down
 	goose -table goose_matchmaking_version -dir migrations/matchmaking postgres "$(DATABASE_URL)" down
 	goose -table goose_game_version -dir migrations/game postgres "$(DATABASE_URL)" down
 	goose -table goose_auth_version -dir migrations/auth postgres "$(DATABASE_URL)" down
+	goose -table goose_profile_version -dir migrations/profile postgres "$(DATABASE_URL)" down

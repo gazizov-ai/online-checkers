@@ -20,4 +20,11 @@ type GameRepository interface {
 	UpdateTurnNotation(ctx context.Context, gameID uuid.UUID, turnNumber int, notation string) error
 
 	ListMoveHistory(ctx context.Context, gameID uuid.UUID) ([]domain.MoveHistoryItem, error)
+	ListGamesByUser(
+		ctx context.Context,
+		userID uuid.UUID,
+		includeActive bool,
+		limit int,
+		offset int,
+	) ([]domain.UserGameHistoryItem, error)
 }

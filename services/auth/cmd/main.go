@@ -4,14 +4,17 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gazizov-ai/online-checkers/pkg/config"
 	"github.com/gazizov-ai/online-checkers/pkg/db"
 	"github.com/gazizov-ai/online-checkers/pkg/httpx"
 	appjwt "github.com/gazizov-ai/online-checkers/pkg/jwt"
+	appkafka "github.com/gazizov-ai/online-checkers/pkg/kafka"
 	"github.com/gazizov-ai/online-checkers/services/auth/internal/handler"
 	"github.com/gazizov-ai/online-checkers/services/auth/internal/identity"
+	"github.com/gazizov-ai/online-checkers/services/auth/internal/outbox"
 	"github.com/gazizov-ai/online-checkers/services/auth/internal/repository"
 	"github.com/gazizov-ai/online-checkers/services/auth/internal/service"
 	"github.com/go-chi/chi/v5"
@@ -50,10 +53,23 @@ func main() {
 		cfg.IDTokenTTL,
 	)
 
-	authService := service.NewAuthService(userRepo, issuer)
+	authService := service.NewAuthService(userRepo, issuer, cfg.UserRegisteredTopic)
 	authHandler := handler.NewAuthHandler(authService)
 
 	identityHandler := handler.NewIdentityHandler(issuer)
+
+	producer := appkafka.NewProducer(appkafka.ProducerConfig{
+		Brokers: strings.Split(cfg.KafkaBrokers, ","),
+		Topic:   cfg.UserRegisteredTopic,
+	})
+	defer producer.Close()
+
+	outboxWorker := outbox.NewWorker(userRepo, producer)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go outboxWorker.Run(ctx)
 
 	r := chi.NewRouter()
 

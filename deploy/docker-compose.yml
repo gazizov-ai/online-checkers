@@ -11,7 +11,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d checkers"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d checkers" ]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -103,6 +103,27 @@ services:
       redpanda:
         condition: service_started
 
+  profile-service:
+    build:
+      context: ..
+      dockerfile: services/profile/Dockerfile
+    container_name: online-checkers-profile
+    environment:
+      SERVICE_NAME: profile-service
+      HTTP_PORT: 8086
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/checkers?sslmode=disable
+      KAFKA_BROKERS: redpanda:29092
+      USER_REGISTERED_TOPIC: user.registered
+      PROFILE_CONSUMER_GROUP: profile-service
+      OIDC_AUDIENCE: online-checkers
+      JWKS_URL: http://auth-service:8081/.well-known/jwks.json
+    ports:
+      - "8086:8086"
+    depends_on:
+      - postgres
+      - redpanda
+      - auth-service
+
   frontend:
     build:
       context: ../frontend
@@ -115,6 +136,7 @@ services:
       - matchmaking-service
       - game-service
       - rating-service
+      - profile-service
 
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:latest
