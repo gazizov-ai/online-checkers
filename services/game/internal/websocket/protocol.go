@@ -35,11 +35,13 @@ type OutgoingMessage struct {
 }
 
 type GameStatePayload struct {
-	GameID      string                `json:"game_id"`
-	BoardState  checkers.GameSnapshot `json:"board_state"`
-	Status      string                `json:"status"`
-	CurrentTurn string                `json:"current_turn"`
-	WinnerID    *string               `json:"winner_id,omitempty"`
+	GameID     string                `json:"game_id"`
+	BoardState checkers.GameSnapshot `json:"board_state"`
+	LegalMoves []checkers.Move       `json:"legal_moves"`
+
+	Status      string  `json:"status"`
+	CurrentTurn string  `json:"current_turn"`
+	WinnerID    *string `json:"winner_id,omitempty"`
 
 	Result       *string `json:"result,omitempty"`
 	FinishReason *string `json:"finish_reason,omitempty"`

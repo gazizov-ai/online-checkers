@@ -32,6 +32,7 @@ type getGameResponse struct {
 	Status        string                `json:"status"`
 	WinnerID      *string               `json:"winner_id,omitempty"`
 	BoardState    checkers.GameSnapshot `json:"board_state"`
+	LegalMoves    []checkers.Move       `json:"legal_moves"`
 	CurrentTurn   string                `json:"current_turn"`
 	Result        *string               `json:"result,omitempty"`
 	FinishReason  *string               `json:"finish_reason,omitempty"`
@@ -122,6 +123,12 @@ func (h *Handler) getGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	legalMoves, err := legalMovesForGame(game)
+	if err != nil {
+		_ = httpx.WriteError(w, http.StatusInternalServerError, "invalid_game_state", "invalid game state")
+		return
+	}
+
 	resp := getGameResponse{
 		ID:            gameID.String(),
 		WhitePlayerID: game.WhitePlayerID.String(),
@@ -129,6 +136,7 @@ func (h *Handler) getGame(w http.ResponseWriter, r *http.Request) {
 		Status:        string(game.Status),
 		WinnerID:      uuidString(game.WinnerID),
 		BoardState:    game.Snapshot,
+		LegalMoves:    legalMoves,
 		CurrentTurn:   string(game.CurrentTurn),
 		Result:        gameResultString(game.Result),
 		FinishReason:  finishReasonString(game.FinishReason),
@@ -136,15 +144,6 @@ func (h *Handler) getGame(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = httpx.WriteJSON(w, http.StatusOK, resp)
-}
-
-func winnerIDString(gameWinnerID *uuid.UUID) *string {
-	if gameWinnerID == nil {
-		return nil
-	}
-
-	s := gameWinnerID.String()
-	return &s
 }
 
 func uuidString(value *uuid.UUID) *string {
@@ -174,17 +173,32 @@ func finishReasonString(value *domain.FinishReason) *string {
 	return &s
 }
 
-func gameStatePayload(game domain.Game) gamews.GameStatePayload {
+func legalMovesForGame(game domain.Game) ([]checkers.Move, error) {
+	engine, err := checkers.NewGameFromSnapshot(game.Snapshot)
+	if err != nil {
+		return nil, err
+	}
+
+	return engine.LegalMoves(), nil
+}
+
+func gameStatePayload(game domain.Game) (gamews.GameStatePayload, error) {
+	legalMoves, err := legalMovesForGame(game)
+	if err != nil {
+		return gamews.GameStatePayload{}, err
+	}
+
 	return gamews.GameStatePayload{
 		GameID:       game.ID.String(),
 		BoardState:   game.Snapshot,
+		LegalMoves:   legalMoves,
 		Status:       string(game.Status),
 		CurrentTurn:  string(game.CurrentTurn),
 		WinnerID:     uuidString(game.WinnerID),
 		Result:       gameResultString(game.Result),
 		FinishReason: finishReasonString(game.FinishReason),
 		DrawOfferBy:  uuidString(game.DrawOfferBy),
-	}
+	}, nil
 }
 
 func (h *Handler) connectWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -219,6 +233,12 @@ func (h *Handler) connectWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	initialPayload, err := gameStatePayload(game)
+	if err != nil {
+		_ = httpx.WriteError(w, http.StatusInternalServerError, "invalid_game_state", "invalid game state")
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
@@ -229,7 +249,7 @@ func (h *Handler) connectWebSocket(w http.ResponseWriter, r *http.Request) {
 	room := h.roomManager.GetOrCreateRoom(gameID.String())
 	room.AddClient(client)
 
-	err = client.Send(gamews.NewGameStateMessage(gameStatePayload(game)))
+	err = client.Send(gamews.NewGameStateMessage(initialPayload))
 	if err != nil {
 		room.RemoveClient(userIDString)
 		_ = client.Close()
@@ -301,7 +321,12 @@ func (h *Handler) handleWSMove(
 
 	game := output.Game
 
-	room.Broadcast(gamews.NewGameStateMessage(gameStatePayload(game)))
+	statePayload, err := gameStatePayload(game)
+	if err != nil {
+		return err
+	}
+
+	room.Broadcast(gamews.NewGameStateMessage(statePayload))
 
 	if game.Status == domain.GameStatusFinished {
 		room.Broadcast(gamews.NewGameFinishedMessage(gamews.GameFinishedPayload{
@@ -334,7 +359,12 @@ func (h *Handler) handleWSResign(
 
 	game := output.Game
 
-	room.Broadcast(gamews.NewGameStateMessage(gameStatePayload(game)))
+	statePayload, err := gameStatePayload(game)
+	if err != nil {
+		return err
+	}
+
+	room.Broadcast(gamews.NewGameStateMessage(statePayload))
 
 	room.Broadcast(gamews.NewGameFinishedMessage(gamews.GameFinishedPayload{
 		GameID:       gameID.String(),
@@ -365,7 +395,12 @@ func (h *Handler) handleWSDrawOffer(
 
 	game := output.Game
 
-	room.Broadcast(gamews.NewGameStateMessage(gameStatePayload(game)))
+	statePayload, err := gameStatePayload(game)
+	if err != nil {
+		return err
+	}
+
+	room.Broadcast(gamews.NewGameStateMessage(statePayload))
 
 	room.Broadcast(gamews.NewDrawOfferedMessage(gamews.DrawOfferedPayload{
 		GameID:    game.ID.String(),
@@ -398,7 +433,12 @@ func (h *Handler) handleWSDrawResponse(
 
 	game := output.Game
 
-	room.Broadcast(gamews.NewGameStateMessage(gameStatePayload(game)))
+	statePayload, err := gameStatePayload(game)
+	if err != nil {
+		return err
+	}
+
+	room.Broadcast(gamews.NewGameStateMessage(statePayload))
 
 	if !req.Accepted {
 		room.Broadcast(gamews.NewDrawDeclinedMessage(gamews.DrawDeclinedPayload{
