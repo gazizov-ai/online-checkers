@@ -41,36 +41,16 @@ func main() {
 		log.Fatal("KAFKA_BROKERS is required")
 	}
 
-	gameFinishedKafkaConsumer := appkafka.NewConsumer(appkafka.ConsumerConfig{
+	gameFinishedConsumerConfig := appkafka.ConsumerConfig{
 		Brokers: brokers,
 		Topic:   cfg.GameFinishedTopic,
 		GroupID: cfg.RatingConsumerGroup,
-	})
-	defer func() {
-		if err := gameFinishedKafkaConsumer.Close(); err != nil {
-			log.Printf("close game finished consumer: %v", err)
-		}
-	}()
-
-	gameFinishedConsumer := consumer.NewGameFinishedConsumer(
-		gameFinishedKafkaConsumer,
-		ratingService,
-	)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go func() {
-		log.Printf("starting game.finished consumer")
-
-		if err := gameFinishedConsumer.Run(ctx); err != nil {
-			if errors.Is(err, context.Canceled) {
-				return
-			}
-
-			log.Printf("game.finished consumer stopped: %v", err)
-		}
-	}()
+	go runGameFinishedConsumerWithRetry(ctx, gameFinishedConsumerConfig, ratingService)
 
 	r := chi.NewRouter()
 
@@ -130,4 +110,47 @@ func splitCSV(value string) []string {
 	}
 
 	return result
+}
+
+func runGameFinishedConsumerWithRetry(
+	ctx context.Context,
+	cfg appkafka.ConsumerConfig,
+	ratingService *service.RatingService,
+) {
+	const retryDelay = 2 * time.Second
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		gameFinishedKafkaConsumer := appkafka.NewConsumer(cfg)
+		gameFinishedConsumer := consumer.NewGameFinishedConsumer(
+			gameFinishedKafkaConsumer,
+			ratingService,
+		)
+
+		log.Printf("starting game.finished consumer")
+
+		err := gameFinishedConsumer.Run(ctx)
+		if closeErr := gameFinishedConsumer.Close(); closeErr != nil {
+			log.Printf("close game finished consumer: %v", closeErr)
+		}
+
+		if err == nil || errors.Is(err, context.Canceled) {
+			return
+		}
+
+		log.Printf("game.finished consumer stopped: %v; retrying in %s", err, retryDelay)
+
+		timer := time.NewTimer(retryDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
 }

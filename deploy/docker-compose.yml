@@ -10,6 +10,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d checkers"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   auth-service:
     build:
@@ -31,7 +36,8 @@ services:
     ports:
       - "8081:8081"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     volumes:
       - ../secrets/jwt_private.pem:/run/secrets/jwt_private.pem:ro
 
@@ -51,7 +57,8 @@ services:
     ports:
       - "8082:8082"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   game-service:
     build:
@@ -70,8 +77,12 @@ services:
       - "8083:8083"
       - "9093:9093"
     depends_on:
-      - postgres
-      - auth-service
+      postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      redpanda:
+        condition: service_started
 
   rating-service:
     build:
@@ -87,7 +98,23 @@ services:
     ports:
       - "8084:8084"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: online-checkers-frontend
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      - auth-service
+      - matchmaking-service
+      - game-service
+      - rating-service
 
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:latest
@@ -112,10 +139,7 @@ services:
     image: docker.redpanda.com/redpandadata/console:latest
     container_name: redpanda-console
     environment:
-      CONFIG_FILEPATH: /tmp/config.yml
-      CONSOLE_CONFIG_FILE: |
-        kafka:
-          brokers: ["redpanda:29092"]
+      KAFKA_BROKERS: redpanda:29092
     ports:
       - "8085:8080"
     depends_on:
