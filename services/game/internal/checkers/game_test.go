@@ -296,6 +296,29 @@ func TestSnapshotsAndRestoration(t *testing.T) {
 		}
 	})
 
+	t.Run("restores finished draw snapshot", func(t *testing.T) {
+		snapshot := NewGame().Snapshot()
+		snapshot.Status = StatusFinished
+		snapshot.Winner = nil
+
+		game, err := NewGameFromSnapshot(snapshot)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		if game.Status != StatusFinished {
+			t.Fatalf("expected status %q, got %q", StatusFinished, game.Status)
+		}
+
+		if game.Winner != nil {
+			t.Fatalf("expected draw without winner, got %q", *game.Winner)
+		}
+
+		if moves := game.LegalMoves(); len(moves) != 0 {
+			t.Fatalf("expected no legal moves for finished draw, got %+v", moves)
+		}
+	})
+
 	t.Run("restores valid forced piece", func(t *testing.T) {
 		snapshot := NewGame().Snapshot()
 
@@ -345,13 +368,6 @@ func TestSnapshotsAndRestoration(t *testing.T) {
 				mutate: func(snapshot *GameSnapshot) {
 					winner := White
 					snapshot.Winner = &winner
-				},
-			},
-			{
-				name: "finished game without winner",
-				mutate: func(snapshot *GameSnapshot) {
-					snapshot.Status = StatusFinished
-					snapshot.Winner = nil
 				},
 			},
 			{
@@ -1590,5 +1606,42 @@ func assertBoardsEqual(t *testing.T, before Board, after Board) {
 				t.Fatalf("expected board not to change at %+v, before %+v after %+v", pos, *beforePiece, *afterPiece)
 			}
 		}
+	}
+}
+
+func TestSquareName(t *testing.T) {
+	got := SquareName(Position{Row: 5, Col: 0})
+	if got != "a3" {
+		t.Fatalf("expected a3, got %s", got)
+	}
+}
+
+func TestMoveSegmentNotationSimpleMove(t *testing.T) {
+	move := Move{
+		From: Position{Row: 5, Col: 0},
+		To:   Position{Row: 4, Col: 1},
+	}
+
+	got := MoveSegmentNotation(move, false)
+	if got != "a3-b4" {
+		t.Fatalf("expected a3-b4, got %s", got)
+	}
+}
+
+func TestMoveChainNotationCapture(t *testing.T) {
+	moves := []Move{
+		{
+			From: Position{Row: 5, Col: 0},
+			To:   Position{Row: 3, Col: 2},
+		},
+		{
+			From: Position{Row: 3, Col: 2},
+			To:   Position{Row: 1, Col: 4},
+		},
+	}
+
+	got := MoveChainNotation(moves, true)
+	if got != "a3:c5:e7" {
+		t.Fatalf("expected a3:c5:e7, got %s", got)
 	}
 }

@@ -82,6 +82,14 @@ type RespondDrawOutput struct {
 	Game domain.Game
 }
 
+type GetMoveHistoryInput struct {
+	GameID uuid.UUID
+}
+
+type GetMoveHistoryOutput struct {
+	Items []domain.MoveHistoryItem
+}
+
 func playerColor(game domain.Game, playerID uuid.UUID) (checkers.Color, bool) {
 	switch playerID {
 	case game.WhitePlayerID:
@@ -102,6 +110,50 @@ func winnerIDForColor(game domain.Game, color checkers.Color) (uuid.UUID, error)
 	default:
 		return uuid.Nil, ErrPlayerNotInGame
 	}
+}
+
+func nextTurnPosition(lastMove *domain.Move, snapshot checkers.GameSnapshot) (turnNumber int, sequenceNumber int) {
+	if lastMove == nil {
+		return 1, 1
+	}
+
+	if snapshot.ForcedPiece != nil {
+		return lastMove.TurnNumber, lastMove.SequenceNumber + 1
+	}
+
+	return lastMove.TurnNumber + 1, 1
+}
+
+func checkersMoveFromDomain(move domain.Move) checkers.Move {
+	return checkers.Move{
+		From: checkers.Position{
+			Row: move.FromRow,
+			Col: move.FromCol,
+		},
+		To: checkers.Position{
+			Row: move.ToRow,
+			Col: move.ToCol,
+		},
+	}
+}
+
+func notationForMoves(moves []domain.Move) string {
+	if len(moves) == 0 {
+		return ""
+	}
+
+	checkersMoves := make([]checkers.Move, 0, len(moves))
+
+	hasCapture := false
+	for _, move := range moves {
+		checkersMoves = append(checkersMoves, checkersMoveFromDomain(move))
+
+		if move.IsCapture {
+			hasCapture = true
+		}
+	}
+
+	return checkers.MoveChainNotation(checkersMoves, hasCapture)
 }
 
 func (s *GameService) CreateGame(ctx context.Context, input CreateGameInput) (uuid.UUID, error) {
@@ -176,6 +228,8 @@ func (s *GameService) ApplyMove(ctx context.Context, input ApplyMoveInput) (Appl
 		return ApplyMoveOutput{}, ErrNotPlayersTurn
 	}
 
+	oldSnapshot := game.Snapshot
+
 	engine, err := checkers.NewGameFromSnapshot(game.Snapshot)
 	if err != nil {
 		return ApplyMoveOutput{}, err
@@ -196,18 +250,40 @@ func (s *GameService) ApplyMove(ctx context.Context, input ApplyMoveInput) (Appl
 		return ApplyMoveOutput{}, err
 	}
 
+	lastMove, err := s.repo.LastMove(ctx, game.ID)
+	if err != nil {
+		return ApplyMoveOutput{}, err
+	}
+
+	turnNumber, sequenceNumber := nextTurnPosition(lastMove, oldSnapshot)
+
 	moveRecord := domain.Move{
-		ID:         uuid.New(),
-		GameID:     game.ID,
-		PlayerID:   input.PlayerID,
-		MoveNumber: nextMoveNumber,
-		FromRow:    input.From.Row,
-		FromCol:    input.From.Col,
-		ToRow:      input.To.Row,
-		ToCol:      input.To.Col,
+		ID:             uuid.New(),
+		GameID:         game.ID,
+		PlayerID:       input.PlayerID,
+		MoveNumber:     nextMoveNumber,
+		TurnNumber:     turnNumber,
+		SequenceNumber: sequenceNumber,
+		FromRow:        input.From.Row,
+		FromCol:        input.From.Col,
+		ToRow:          input.To.Row,
+		ToCol:          input.To.Col,
+		IsCapture:      result.Captured,
+		Notation:       checkers.MoveSegmentNotation(move, result.Captured),
 	}
 
 	if err := s.repo.CreateMove(ctx, moveRecord); err != nil {
+		return ApplyMoveOutput{}, err
+	}
+
+	turnMoves, err := s.repo.ListMovesByTurn(ctx, game.ID, turnNumber)
+	if err != nil {
+		return ApplyMoveOutput{}, err
+	}
+
+	notation := notationForMoves(turnMoves)
+
+	if err := s.repo.UpdateTurnNotation(ctx, game.ID, turnNumber, notation); err != nil {
 		return ApplyMoveOutput{}, err
 	}
 
@@ -436,4 +512,18 @@ func gameResultForWinner(game domain.Game, winnerID uuid.UUID) (domain.GameResul
 	default:
 		return "", ErrPlayerNotInGame
 	}
+}
+
+func (s *GameService) GetMoveHistory(
+	ctx context.Context,
+	input GetMoveHistoryInput,
+) (GetMoveHistoryOutput, error) {
+	items, err := s.repo.ListMoveHistory(ctx, input.GameID)
+	if err != nil {
+		return GetMoveHistoryOutput{}, err
+	}
+
+	return GetMoveHistoryOutput{
+		Items: items,
+	}, nil
 }

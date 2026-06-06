@@ -26,17 +26,18 @@ type createGameResponse struct {
 }
 
 type getGameResponse struct {
-	ID            string                `json:"id"`
-	WhitePlayerID string                `json:"white_player_id"`
-	BlackPlayerID string                `json:"black_player_id"`
-	Status        string                `json:"status"`
-	WinnerID      *string               `json:"winner_id,omitempty"`
-	BoardState    checkers.GameSnapshot `json:"board_state"`
-	LegalMoves    []checkers.Move       `json:"legal_moves"`
-	CurrentTurn   string                `json:"current_turn"`
-	Result        *string               `json:"result,omitempty"`
-	FinishReason  *string               `json:"finish_reason,omitempty"`
-	DrawOfferBy   *string               `json:"draw_offer_by,omitempty"`
+	ID            string                          `json:"id"`
+	WhitePlayerID string                          `json:"white_player_id"`
+	BlackPlayerID string                          `json:"black_player_id"`
+	Status        string                          `json:"status"`
+	WinnerID      *string                         `json:"winner_id,omitempty"`
+	BoardState    checkers.GameSnapshot           `json:"board_state"`
+	LegalMoves    []checkers.Move                 `json:"legal_moves"`
+	MoveHistory   []gamews.MoveHistoryItemPayload `json:"move_history"`
+	CurrentTurn   string                          `json:"current_turn"`
+	Result        *string                         `json:"result,omitempty"`
+	FinishReason  *string                         `json:"finish_reason,omitempty"`
+	DrawOfferBy   *string                         `json:"draw_offer_by,omitempty"`
 }
 
 type Handler struct {
@@ -129,6 +130,14 @@ func (h *Handler) getGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	moveHistory, err := h.gameService.GetMoveHistory(r.Context(), service.GetMoveHistoryInput{
+		GameID: game.ID,
+	})
+	if err != nil {
+		_ = httpx.WriteError(w, http.StatusInternalServerError, "move_history_load_failed", "failed to load move history")
+		return
+	}
+
 	resp := getGameResponse{
 		ID:            gameID.String(),
 		WhitePlayerID: game.WhitePlayerID.String(),
@@ -137,6 +146,7 @@ func (h *Handler) getGame(w http.ResponseWriter, r *http.Request) {
 		WinnerID:      uuidString(game.WinnerID),
 		BoardState:    game.Snapshot,
 		LegalMoves:    legalMoves,
+		MoveHistory:   moveHistoryPayload(moveHistory.Items),
 		CurrentTurn:   string(game.CurrentTurn),
 		Result:        gameResultString(game.Result),
 		FinishReason:  finishReasonString(game.FinishReason),
@@ -182,19 +192,46 @@ func legalMovesForGame(game domain.Game) ([]checkers.Move, error) {
 	return engine.LegalMoves(), nil
 }
 
-func gameStatePayload(game domain.Game) (gamews.GameStatePayload, error) {
+func moveHistoryPayload(items []domain.MoveHistoryItem) []gamews.MoveHistoryItemPayload {
+	payload := make([]gamews.MoveHistoryItemPayload, 0, len(items))
+
+	for _, item := range items {
+		payload = append(payload, gamews.MoveHistoryItemPayload{
+			TurnNumber: item.TurnNumber,
+			PlayerID:   item.PlayerID.String(),
+			Notation:   item.Notation,
+		})
+	}
+
+	return payload
+}
+
+func (h *Handler) gameStatePayload(
+	ctx context.Context,
+	game domain.Game,
+) (gamews.GameStatePayload, error) {
 	legalMoves, err := legalMovesForGame(game)
 	if err != nil {
 		return gamews.GameStatePayload{}, err
 	}
 
+	moveHistory, err := h.gameService.GetMoveHistory(ctx, service.GetMoveHistoryInput{
+		GameID: game.ID,
+	})
+	if err != nil {
+		return gamews.GameStatePayload{}, err
+	}
+
 	return gamews.GameStatePayload{
-		GameID:       game.ID.String(),
-		BoardState:   game.Snapshot,
-		LegalMoves:   legalMoves,
-		Status:       string(game.Status),
-		CurrentTurn:  string(game.CurrentTurn),
-		WinnerID:     uuidString(game.WinnerID),
+		GameID:      game.ID.String(),
+		BoardState:  game.Snapshot,
+		LegalMoves:  legalMoves,
+		MoveHistory: moveHistoryPayload(moveHistory.Items),
+
+		Status:      string(game.Status),
+		CurrentTurn: string(game.CurrentTurn),
+		WinnerID:    uuidString(game.WinnerID),
+
 		Result:       gameResultString(game.Result),
 		FinishReason: finishReasonString(game.FinishReason),
 		DrawOfferBy:  uuidString(game.DrawOfferBy),
@@ -233,7 +270,7 @@ func (h *Handler) connectWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	initialPayload, err := gameStatePayload(game)
+	initialPayload, err := h.gameStatePayload(r.Context(), game)
 	if err != nil {
 		_ = httpx.WriteError(w, http.StatusInternalServerError, "invalid_game_state", "invalid game state")
 		return
@@ -321,7 +358,7 @@ func (h *Handler) handleWSMove(
 
 	game := output.Game
 
-	statePayload, err := gameStatePayload(game)
+	statePayload, err := h.gameStatePayload(ctx, game)
 	if err != nil {
 		return err
 	}
@@ -359,7 +396,7 @@ func (h *Handler) handleWSResign(
 
 	game := output.Game
 
-	statePayload, err := gameStatePayload(game)
+	statePayload, err := h.gameStatePayload(ctx, game)
 	if err != nil {
 		return err
 	}
@@ -395,7 +432,7 @@ func (h *Handler) handleWSDrawOffer(
 
 	game := output.Game
 
-	statePayload, err := gameStatePayload(game)
+	statePayload, err := h.gameStatePayload(ctx, game)
 	if err != nil {
 		return err
 	}
@@ -433,7 +470,7 @@ func (h *Handler) handleWSDrawResponse(
 
 	game := output.Game
 
-	statePayload, err := gameStatePayload(game)
+	statePayload, err := h.gameStatePayload(ctx, game)
 	if err != nil {
 		return err
 	}

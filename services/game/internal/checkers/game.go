@@ -37,11 +37,7 @@ func NewGameFromSnapshot(snapshot GameSnapshot) (*Game, error) {
 			return nil, ErrInvalidState
 		}
 	case StatusFinished:
-		if snapshot.Winner == nil {
-			return nil, ErrInvalidState
-		}
-
-		if !snapshot.Winner.IsValid() {
+		if snapshot.Winner != nil && !snapshot.Winner.IsValid() {
 			return nil, ErrInvalidState
 		}
 	default:

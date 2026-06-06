@@ -35,9 +35,10 @@ type OutgoingMessage struct {
 }
 
 type GameStatePayload struct {
-	GameID     string                `json:"game_id"`
-	BoardState checkers.GameSnapshot `json:"board_state"`
-	LegalMoves []checkers.Move       `json:"legal_moves"`
+	GameID      string                   `json:"game_id"`
+	BoardState  checkers.GameSnapshot    `json:"board_state"`
+	LegalMoves  []checkers.Move          `json:"legal_moves"`
+	MoveHistory []MoveHistoryItemPayload `json:"move_history"`
 
 	Status      string  `json:"status"`
 	CurrentTurn string  `json:"current_turn"`
@@ -46,6 +47,12 @@ type GameStatePayload struct {
 	Result       *string `json:"result,omitempty"`
 	FinishReason *string `json:"finish_reason,omitempty"`
 	DrawOfferBy  *string `json:"draw_offer_by,omitempty"`
+}
+
+type MoveHistoryItemPayload struct {
+	TurnNumber int    `json:"turn_number"`
+	PlayerID   string `json:"player_id"`
+	Notation   string `json:"notation"`
 }
 
 type GameFinishedPayload struct {

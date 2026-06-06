@@ -2,7 +2,9 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/gazizov-ai/online-checkers/services/game/internal/checkers"
@@ -32,6 +34,60 @@ type gameRow struct {
 	CurrentTurn    string     `db:"current_turn"`
 	CreatedAt      time.Time  `db:"created_at"`
 	FinishedAt     *time.Time `db:"finished_at"`
+}
+
+type moveRow struct {
+	ID       uuid.UUID `db:"id"`
+	GameID   uuid.UUID `db:"game_id"`
+	PlayerID uuid.UUID `db:"player_id"`
+
+	MoveNumber     int `db:"move_number"`
+	TurnNumber     int `db:"turn_number"`
+	SequenceNumber int `db:"sequence_number"`
+
+	FromRow int `db:"from_row"`
+	FromCol int `db:"from_col"`
+	ToRow   int `db:"to_row"`
+	ToCol   int `db:"to_col"`
+
+	IsCapture bool   `db:"is_capture"`
+	Notation  string `db:"notation"`
+
+	CreatedAt time.Time `db:"created_at"`
+}
+
+type moveHistoryRow struct {
+	TurnNumber int       `db:"turn_number"`
+	PlayerID   uuid.UUID `db:"player_id"`
+	Notation   string    `db:"notation"`
+	CreatedAt  time.Time `db:"created_at"`
+}
+
+func moveRowToDomain(row moveRow) domain.Move {
+	return domain.Move{
+		ID:             row.ID,
+		GameID:         row.GameID,
+		PlayerID:       row.PlayerID,
+		MoveNumber:     row.MoveNumber,
+		TurnNumber:     row.TurnNumber,
+		SequenceNumber: row.SequenceNumber,
+		FromRow:        row.FromRow,
+		FromCol:        row.FromCol,
+		ToRow:          row.ToRow,
+		ToCol:          row.ToCol,
+		IsCapture:      row.IsCapture,
+		Notation:       row.Notation,
+		CreatedAt:      row.CreatedAt,
+	}
+}
+
+func moveHistoryRowToDomain(row moveHistoryRow) domain.MoveHistoryItem {
+	return domain.MoveHistoryItem{
+		TurnNumber: row.TurnNumber,
+		PlayerID:   row.PlayerID,
+		Notation:   row.Notation,
+		CreatedAt:  row.CreatedAt,
+	}
 }
 
 func (r *PostgresGameRepository) CreateGame(ctx context.Context, game domain.Game) error {
@@ -196,12 +252,19 @@ func (r *PostgresGameRepository) CreateMove(ctx context.Context, move domain.Mov
 			game_id,
 			player_id,
 			move_number,
+			turn_number,
+			sequence_number,
 			from_row,
 			from_col,
 			to_row,
-			to_col
+			to_col,
+			is_capture,
+			notation
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		VALUES (
+			$1, $2, $3, $4, $5, $6,
+			$7, $8, $9, $10, $11, $12
+		)
 	`
 
 	_, err := r.db.ExecContext(
@@ -211,13 +274,134 @@ func (r *PostgresGameRepository) CreateMove(ctx context.Context, move domain.Mov
 		move.GameID,
 		move.PlayerID,
 		move.MoveNumber,
+		move.TurnNumber,
+		move.SequenceNumber,
 		move.FromRow,
 		move.FromCol,
 		move.ToRow,
 		move.ToCol,
+		move.IsCapture,
+		move.Notation,
 	)
 
 	return err
+}
+
+func (r *PostgresGameRepository) LastMove(ctx context.Context, gameID uuid.UUID) (*domain.Move, error) {
+	const query = `
+		SELECT
+			id,
+			game_id,
+			player_id,
+			move_number,
+			turn_number,
+			sequence_number,
+			from_row,
+			from_col,
+			to_row,
+			to_col,
+			is_capture,
+			notation,
+			created_at
+		FROM moves
+		WHERE game_id = $1
+		ORDER BY move_number DESC
+		LIMIT 1
+	`
+
+	var row moveRow
+	if err := r.db.GetContext(ctx, &row, query, gameID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+
+		return nil, err
+	}
+
+	move := moveRowToDomain(row)
+	return &move, nil
+}
+
+func (r *PostgresGameRepository) ListMovesByTurn(
+	ctx context.Context,
+	gameID uuid.UUID,
+	turnNumber int,
+) ([]domain.Move, error) {
+	const query = `
+		SELECT
+			id,
+			game_id,
+			player_id,
+			move_number,
+			turn_number,
+			sequence_number,
+			from_row,
+			from_col,
+			to_row,
+			to_col,
+			is_capture,
+			notation,
+			created_at
+		FROM moves
+		WHERE game_id = $1 AND turn_number = $2
+		ORDER BY sequence_number ASC
+	`
+
+	var rows []moveRow
+	if err := r.db.SelectContext(ctx, &rows, query, gameID, turnNumber); err != nil {
+		return nil, err
+	}
+
+	moves := make([]domain.Move, 0, len(rows))
+	for _, row := range rows {
+		moves = append(moves, moveRowToDomain(row))
+	}
+
+	return moves, nil
+}
+
+func (r *PostgresGameRepository) UpdateTurnNotation(
+	ctx context.Context,
+	gameID uuid.UUID,
+	turnNumber int,
+	notation string,
+) error {
+	const query = `
+		UPDATE moves
+		SET notation = $3
+		WHERE game_id = $1 AND turn_number = $2
+	`
+
+	_, err := r.db.ExecContext(ctx, query, gameID, turnNumber, notation)
+	return err
+}
+
+func (r *PostgresGameRepository) ListMoveHistory(
+	ctx context.Context,
+	gameID uuid.UUID,
+) ([]domain.MoveHistoryItem, error) {
+	const query = `
+		SELECT DISTINCT ON (turn_number)
+			turn_number,
+			player_id,
+			notation,
+			created_at
+		FROM moves
+		WHERE game_id = $1
+		ORDER BY turn_number ASC, sequence_number DESC
+	`
+
+	var rows []moveHistoryRow
+	if err := r.db.SelectContext(ctx, &rows, query, gameID); err != nil {
+		return nil, err
+	}
+
+	items := make([]domain.MoveHistoryItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, moveHistoryRowToDomain(row))
+	}
+
+	return items, nil
 }
 
 var _ GameRepository = (*PostgresGameRepository)(nil)

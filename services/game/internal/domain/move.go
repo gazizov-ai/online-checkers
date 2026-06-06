@@ -7,13 +7,28 @@ import (
 )
 
 type Move struct {
-	ID         uuid.UUID
-	GameID     uuid.UUID
+	ID       uuid.UUID
+	GameID   uuid.UUID
+	PlayerID uuid.UUID
+
+	MoveNumber     int
+	TurnNumber     int
+	SequenceNumber int
+
+	FromRow int
+	FromCol int
+	ToRow   int
+	ToCol   int
+
+	IsCapture bool
+	Notation  string
+
+	CreatedAt time.Time
+}
+
+type MoveHistoryItem struct {
+	TurnNumber int
 	PlayerID   uuid.UUID
-	MoveNumber int
-	FromRow    int
-	FromCol    int
-	ToRow      int
-	ToCol      int
+	Notation   string
 	CreatedAt  time.Time
 }
