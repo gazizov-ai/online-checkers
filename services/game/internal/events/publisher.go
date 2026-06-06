@@ -6,6 +6,7 @@ import (
 	"github.com/gazizov-ai/online-checkers/gen/events/v1"
 	appkafka "github.com/gazizov-ai/online-checkers/pkg/kafka"
 	gameservice "github.com/gazizov-ai/online-checkers/services/game/internal/service"
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -24,13 +25,21 @@ func (p *GameFinishedPublisher) PublishGameFinished(
 	ctx context.Context,
 	event gameservice.GameFinishedEvent,
 ) error {
+
+	winnerID := ""
+	if event.WinnerID != uuid.Nil {
+		winnerID = event.WinnerID.String()
+	}
+
 	msg := &eventsv1.GameFinished{
 		EventId:       event.EventID.String(),
 		GameId:        event.GameID.String(),
 		WhitePlayerId: event.WhitePlayerID.String(),
 		BlackPlayerId: event.BlackPlayerID.String(),
-		WinnerId:      event.WinnerID.String(),
+		WinnerId:      winnerID,
 		FinishedAt:    timestamppb.New(event.FinishedAt),
+		Result:        string(event.Result),
+		Reason:        string(event.Reason),
 	}
 
 	payload, err := proto.Marshal(msg)

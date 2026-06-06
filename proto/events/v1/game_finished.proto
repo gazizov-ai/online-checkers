@@ -13,4 +13,6 @@ message GameFinished {
   string black_player_id = 4;
   string winner_id = 5;
   google.protobuf.Timestamp finished_at = 6;
+  string result = 7;
+  string reason = 8;
 }

@@ -64,7 +64,6 @@ func (c *GameFinishedConsumer) handleMessage(ctx context.Context, msg appkafka.M
 
 	return nil
 }
-
 func mapGameFinishedEvent(pbEvent *eventsv1.GameFinished) (domain.GameFinishedEvent, error) {
 	eventID, err := uuid.Parse(pbEvent.EventId)
 	if err != nil {
@@ -86,9 +85,35 @@ func mapGameFinishedEvent(pbEvent *eventsv1.GameFinished) (domain.GameFinishedEv
 		return domain.GameFinishedEvent{}, fmt.Errorf("parse black_player_id: %w", err)
 	}
 
-	winnerID, err := uuid.Parse(pbEvent.WinnerId)
+	if whitePlayerID == blackPlayerID {
+		return domain.GameFinishedEvent{}, fmt.Errorf("white_player_id and black_player_id must be different")
+	}
+
+	result := domain.GameResult(pbEvent.Result)
+	if result == "" {
+		result = legacyResultFromWinnerID(pbEvent.WinnerId, whitePlayerID, blackPlayerID)
+	}
+
+	if err := validateGameResult(result); err != nil {
+		return domain.GameFinishedEvent{}, err
+	}
+
+	reason := domain.FinishReason(pbEvent.Reason)
+	if reason == "" {
+		reason = domain.FinishReasonCheckersRules
+	}
+
+	if err := validateFinishReason(reason); err != nil {
+		return domain.GameFinishedEvent{}, err
+	}
+
+	winnerID, err := parseOptionalWinnerID(pbEvent.WinnerId)
 	if err != nil {
-		return domain.GameFinishedEvent{}, fmt.Errorf("parse winner_id: %w", err)
+		return domain.GameFinishedEvent{}, err
+	}
+
+	if err := validateResultWinnerConsistency(result, winnerID, whitePlayerID, blackPlayerID); err != nil {
+		return domain.GameFinishedEvent{}, err
 	}
 
 	if pbEvent.FinishedAt == nil {
@@ -101,6 +126,97 @@ func mapGameFinishedEvent(pbEvent *eventsv1.GameFinished) (domain.GameFinishedEv
 		WhitePlayerID: whitePlayerID,
 		BlackPlayerID: blackPlayerID,
 		WinnerID:      winnerID,
+		Result:        result,
+		Reason:        reason,
 		FinishedAt:    pbEvent.FinishedAt.AsTime(),
 	}, nil
+}
+
+func parseOptionalWinnerID(value string) (*uuid.UUID, error) {
+	if value == "" {
+		return nil, nil
+	}
+
+	winnerID, err := uuid.Parse(value)
+	if err != nil {
+		return nil, fmt.Errorf("parse winner_id: %w", err)
+	}
+
+	return &winnerID, nil
+}
+
+func validateGameResult(result domain.GameResult) error {
+	switch result {
+	case domain.GameResultWhiteWin, domain.GameResultBlackWin, domain.GameResultDraw:
+		return nil
+	default:
+		return fmt.Errorf("invalid result: %q", result)
+	}
+}
+
+func validateFinishReason(reason domain.FinishReason) error {
+	switch reason {
+	case domain.FinishReasonCheckersRules,
+		domain.FinishReasonResignation,
+		domain.FinishReasonDrawAgreement:
+		return nil
+	default:
+		return fmt.Errorf("invalid finish_reason: %q", reason)
+	}
+}
+
+func validateResultWinnerConsistency(
+	result domain.GameResult,
+	winnerID *uuid.UUID,
+	whitePlayerID uuid.UUID,
+	blackPlayerID uuid.UUID,
+) error {
+	switch result {
+	case domain.GameResultDraw:
+		if winnerID != nil {
+			return fmt.Errorf("draw must not have winner_id")
+		}
+		return nil
+
+	case domain.GameResultWhiteWin:
+		if winnerID == nil {
+			return fmt.Errorf("white_win requires winner_id")
+		}
+		if *winnerID != whitePlayerID {
+			return fmt.Errorf("white_win winner_id must equal white_player_id")
+		}
+		return nil
+
+	case domain.GameResultBlackWin:
+		if winnerID == nil {
+			return fmt.Errorf("black_win requires winner_id")
+		}
+		if *winnerID != blackPlayerID {
+			return fmt.Errorf("black_win winner_id must equal black_player_id")
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("invalid result: %q", result)
+	}
+}
+
+func legacyResultFromWinnerID(
+	winnerIDRaw string,
+	whitePlayerID uuid.UUID,
+	blackPlayerID uuid.UUID,
+) domain.GameResult {
+	winnerID, err := uuid.Parse(winnerIDRaw)
+	if err != nil {
+		return ""
+	}
+
+	switch winnerID {
+	case whitePlayerID:
+		return domain.GameResultWhiteWin
+	case blackPlayerID:
+		return domain.GameResultBlackWin
+	default:
+		return ""
+	}
 }

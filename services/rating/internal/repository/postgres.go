@@ -78,11 +78,6 @@ func (r *PostgresRatingRepository) ProcessGameFinished(
 	ctx context.Context,
 	event domain.GameFinishedEvent,
 ) error {
-	loserID, err := event.LoserID()
-	if err != nil {
-		return err
-	}
-
 	if event.WhitePlayerID == event.BlackPlayerID {
 		return domain.ErrInvalidWinner
 	}
@@ -124,9 +119,44 @@ func (r *PostgresRatingRepository) ProcessGameFinished(
 		ON CONFLICT (user_id) DO NOTHING
 	`
 
-	_, err = tx.ExecContext(ctx, createNewIfNotExistsQuery, event.WinnerID, loserID, domain.DefaultRating)
+	_, err = tx.ExecContext(
+		ctx,
+		createNewIfNotExistsQuery,
+		event.WhitePlayerID,
+		event.BlackPlayerID,
+		domain.DefaultRating,
+	)
 	if err != nil {
 		return fmt.Errorf("ensure ratings: %w", err)
+	}
+
+	if event.IsDraw() {
+		updateDrawQuery := `
+			UPDATE ratings
+			SET
+				games_played = games_played + 1,
+				updated_at = now()
+			WHERE user_id IN ($1, $2)
+		`
+
+		if _, err := tx.ExecContext(ctx, updateDrawQuery, event.WhitePlayerID, event.BlackPlayerID); err != nil {
+			return fmt.Errorf("update draw ratings: %w", err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit tx: %w", err)
+		}
+
+		return nil
+	}
+
+	if event.WinnerID == nil {
+		return domain.ErrInvalidWinner
+	}
+
+	loserID, err := event.LoserID()
+	if err != nil {
+		return err
 	}
 
 	addWinQuery := `
@@ -139,8 +169,7 @@ func (r *PostgresRatingRepository) ProcessGameFinished(
 		WHERE user_id = $1
 	`
 
-	_, err = tx.ExecContext(ctx, addWinQuery, event.WinnerID, ratingDelta)
-
+	_, err = tx.ExecContext(ctx, addWinQuery, *event.WinnerID, ratingDelta)
 	if err != nil {
 		return fmt.Errorf("update winner rating: %w", err)
 	}

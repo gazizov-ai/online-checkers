@@ -33,6 +33,9 @@ type getGameResponse struct {
 	WinnerID      *string               `json:"winner_id,omitempty"`
 	BoardState    checkers.GameSnapshot `json:"board_state"`
 	CurrentTurn   string                `json:"current_turn"`
+	Result        *string               `json:"result,omitempty"`
+	FinishReason  *string               `json:"finish_reason,omitempty"`
+	DrawOfferBy   *string               `json:"draw_offer_by,omitempty"`
 }
 
 type Handler struct {
@@ -119,20 +122,17 @@ func (h *Handler) getGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var winnerID *string
-	if game.WinnerID != nil {
-		s := game.WinnerID.String()
-		winnerID = &s
-	}
-
 	resp := getGameResponse{
 		ID:            gameID.String(),
 		WhitePlayerID: game.WhitePlayerID.String(),
 		BlackPlayerID: game.BlackPlayerID.String(),
 		Status:        string(game.Status),
-		WinnerID:      winnerID,
+		WinnerID:      uuidString(game.WinnerID),
 		BoardState:    game.Snapshot,
 		CurrentTurn:   string(game.CurrentTurn),
+		Result:        gameResultString(game.Result),
+		FinishReason:  finishReasonString(game.FinishReason),
+		DrawOfferBy:   uuidString(game.DrawOfferBy),
 	}
 
 	_ = httpx.WriteJSON(w, http.StatusOK, resp)
@@ -145,6 +145,46 @@ func winnerIDString(gameWinnerID *uuid.UUID) *string {
 
 	s := gameWinnerID.String()
 	return &s
+}
+
+func uuidString(value *uuid.UUID) *string {
+	if value == nil {
+		return nil
+	}
+
+	s := value.String()
+	return &s
+}
+
+func gameResultString(value *domain.GameResult) *string {
+	if value == nil {
+		return nil
+	}
+
+	s := string(*value)
+	return &s
+}
+
+func finishReasonString(value *domain.FinishReason) *string {
+	if value == nil {
+		return nil
+	}
+
+	s := string(*value)
+	return &s
+}
+
+func gameStatePayload(game domain.Game) gamews.GameStatePayload {
+	return gamews.GameStatePayload{
+		GameID:       game.ID.String(),
+		BoardState:   game.Snapshot,
+		Status:       string(game.Status),
+		CurrentTurn:  string(game.CurrentTurn),
+		WinnerID:     uuidString(game.WinnerID),
+		Result:       gameResultString(game.Result),
+		FinishReason: finishReasonString(game.FinishReason),
+		DrawOfferBy:  uuidString(game.DrawOfferBy),
+	}
 }
 
 func (h *Handler) connectWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -189,15 +229,7 @@ func (h *Handler) connectWebSocket(w http.ResponseWriter, r *http.Request) {
 	room := h.roomManager.GetOrCreateRoom(gameID.String())
 	room.AddClient(client)
 
-	winnerID := winnerIDString(game.WinnerID)
-
-	err = client.Send(gamews.NewGameStateMessage(gamews.GameStatePayload{
-		GameID:      game.ID.String(),
-		BoardState:  game.Snapshot,
-		Status:      string(game.Status),
-		CurrentTurn: string(game.CurrentTurn),
-		WinnerID:    winnerID,
-	}))
+	err = client.Send(gamews.NewGameStateMessage(gameStatePayload(game)))
 	if err != nil {
 		room.RemoveClient(userIDString)
 		_ = client.Close()
@@ -219,6 +251,23 @@ func (h *Handler) connectWebSocket(w http.ResponseWriter, r *http.Request) {
 		switch msg.Type {
 		case gamews.MessageTypeMove:
 			if err := h.handleWSMove(r.Context(), room, gameID, userID, msg.Payload); err != nil {
+				_ = client.Send(gamews.NewErrorMessage(err.Error()))
+				continue
+			}
+		case gamews.MessageTypeResign:
+			if err := h.handleWSResign(r.Context(), room, gameID, userID); err != nil {
+				_ = client.Send(gamews.NewErrorMessage(err.Error()))
+				continue
+			}
+
+		case gamews.MessageTypeDrawOffer:
+			if err := h.handleWSDrawOffer(r.Context(), room, gameID, userID); err != nil {
+				_ = client.Send(gamews.NewErrorMessage(err.Error()))
+				continue
+			}
+
+		case gamews.MessageTypeDrawResponse:
+			if err := h.handleWSDrawResponse(r.Context(), room, gameID, userID, msg.Payload); err != nil {
 				_ = client.Send(gamews.NewErrorMessage(err.Error()))
 				continue
 			}
@@ -252,26 +301,122 @@ func (h *Handler) handleWSMove(
 
 	game := output.Game
 
-	winnerID := winnerIDString(game.WinnerID)
-
-	room.Broadcast(gamews.NewGameStateMessage(gamews.GameStatePayload{
-		GameID:      game.ID.String(),
-		BoardState:  game.Snapshot,
-		Status:      string(game.Status),
-		CurrentTurn: string(game.CurrentTurn),
-		WinnerID:    winnerID,
-	}))
+	room.Broadcast(gamews.NewGameStateMessage(gameStatePayload(game)))
 
 	if game.Status == domain.GameStatusFinished {
 		room.Broadcast(gamews.NewGameFinishedMessage(gamews.GameFinishedPayload{
-			GameID:   gameID.String(),
-			WinnerID: winnerID,
+			GameID:       gameID.String(),
+			WinnerID:     uuidString(game.WinnerID),
+			Result:       gameResultString(game.Result),
+			FinishReason: finishReasonString(game.FinishReason),
 		}))
 
 		room.CloseAll()
-
 		h.roomManager.DeleteRoom(gameID.String())
 	}
+
+	return nil
+}
+
+func (h *Handler) handleWSResign(
+	ctx context.Context,
+	room *gamews.GameRoom,
+	gameID uuid.UUID,
+	playerID uuid.UUID,
+) error {
+	output, err := h.gameService.Resign(ctx, service.ResignInput{
+		GameID:   gameID,
+		PlayerID: playerID,
+	})
+	if err != nil {
+		return err
+	}
+
+	game := output.Game
+
+	room.Broadcast(gamews.NewGameStateMessage(gameStatePayload(game)))
+
+	room.Broadcast(gamews.NewGameFinishedMessage(gamews.GameFinishedPayload{
+		GameID:       gameID.String(),
+		WinnerID:     uuidString(game.WinnerID),
+		Result:       gameResultString(game.Result),
+		FinishReason: finishReasonString(game.FinishReason),
+	}))
+
+	room.CloseAll()
+	h.roomManager.DeleteRoom(gameID.String())
+
+	return nil
+}
+
+func (h *Handler) handleWSDrawOffer(
+	ctx context.Context,
+	room *gamews.GameRoom,
+	gameID uuid.UUID,
+	playerID uuid.UUID,
+) error {
+	output, err := h.gameService.OfferDraw(ctx, service.OfferDrawInput{
+		GameID:   gameID,
+		PlayerID: playerID,
+	})
+	if err != nil {
+		return err
+	}
+
+	game := output.Game
+
+	room.Broadcast(gamews.NewGameStateMessage(gameStatePayload(game)))
+
+	room.Broadcast(gamews.NewDrawOfferedMessage(gamews.DrawOfferedPayload{
+		GameID:    game.ID.String(),
+		OfferedBy: playerID.String(),
+	}))
+
+	return nil
+}
+
+func (h *Handler) handleWSDrawResponse(
+	ctx context.Context,
+	room *gamews.GameRoom,
+	gameID uuid.UUID,
+	playerID uuid.UUID,
+	payload json.RawMessage,
+) error {
+	var req gamews.DrawResponsePayload
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return err
+	}
+
+	output, err := h.gameService.RespondDraw(ctx, service.RespondDrawInput{
+		GameID:   gameID,
+		PlayerID: playerID,
+		Accepted: req.Accepted,
+	})
+	if err != nil {
+		return err
+	}
+
+	game := output.Game
+
+	room.Broadcast(gamews.NewGameStateMessage(gameStatePayload(game)))
+
+	if !req.Accepted {
+		room.Broadcast(gamews.NewDrawDeclinedMessage(gamews.DrawDeclinedPayload{
+			GameID:     game.ID.String(),
+			DeclinedBy: playerID.String(),
+		}))
+		return nil
+	}
+
+	room.Broadcast(gamews.NewGameFinishedMessage(gamews.GameFinishedPayload{
+		GameID:       game.ID.String(),
+		WinnerID:     uuidString(game.WinnerID),
+		Result:       gameResultString(game.Result),
+		FinishReason: finishReasonString(game.FinishReason),
+	}))
+
+	room.CloseAll()
+	h.roomManager.DeleteRoom(gameID.String())
 
 	return nil
 }

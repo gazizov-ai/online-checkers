@@ -30,6 +30,8 @@ type GameFinished struct {
 	BlackPlayerId string                 `protobuf:"bytes,4,opt,name=black_player_id,json=blackPlayerId,proto3" json:"black_player_id,omitempty"`
 	WinnerId      string                 `protobuf:"bytes,5,opt,name=winner_id,json=winnerId,proto3" json:"winner_id,omitempty"`
 	FinishedAt    *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
+	Result        string                 `protobuf:"bytes,7,opt,name=result,proto3" json:"result,omitempty"`
+	Reason        string                 `protobuf:"bytes,8,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -106,11 +108,25 @@ func (x *GameFinished) GetFinishedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *GameFinished) GetResult() string {
+	if x != nil {
+		return x.Result
+	}
+	return ""
+}
+
+func (x *GameFinished) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
 var File_proto_events_v1_game_finished_proto protoreflect.FileDescriptor
 
 const file_proto_events_v1_game_finished_proto_rawDesc = "" +
 	"\n" +
-	"#proto/events/v1/game_finished.proto\x12\x19online_checkers.events.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xec\x01\n" +
+	"#proto/events/v1/game_finished.proto\x12\x19online_checkers.events.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x9c\x02\n" +
 	"\fGameFinished\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12\x17\n" +
 	"\agame_id\x18\x02 \x01(\tR\x06gameId\x12&\n" +
@@ -118,7 +134,9 @@ const file_proto_events_v1_game_finished_proto_rawDesc = "" +
 	"\x0fblack_player_id\x18\x04 \x01(\tR\rblackPlayerId\x12\x1b\n" +
 	"\twinner_id\x18\x05 \x01(\tR\bwinnerId\x12;\n" +
 	"\vfinished_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"finishedAtB>Z<github.com/gazizov-ai/online-checkers/gen/events/v1;eventsv1b\x06proto3"
+	"finishedAt\x12\x16\n" +
+	"\x06result\x18\a \x01(\tR\x06result\x12\x16\n" +
+	"\x06reason\x18\b \x01(\tR\x06reasonB>Z<github.com/gazizov-ai/online-checkers/gen/events/v1;eventsv1b\x06proto3"
 
 var (
 	file_proto_events_v1_game_finished_proto_rawDescOnce sync.Once

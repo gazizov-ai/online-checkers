@@ -20,15 +20,18 @@ func NewPostgresGameRepository(db *sqlx.DB) *PostgresGameRepository {
 }
 
 type gameRow struct {
-	ID            uuid.UUID  `db:"id"`
-	WhitePlayerID uuid.UUID  `db:"white_player_id"`
-	BlackPlayerID uuid.UUID  `db:"black_player_id"`
-	Status        string     `db:"status"`
-	WinnerID      *uuid.UUID `db:"winner_id"`
-	BoardState    []byte     `db:"board_state"`
-	CurrentTurn   string     `db:"current_turn"`
-	CreatedAt     time.Time  `db:"created_at"`
-	FinishedAt    *time.Time `db:"finished_at"`
+	ID             uuid.UUID  `db:"id"`
+	WhitePlayerID  uuid.UUID  `db:"white_player_id"`
+	BlackPlayerID  uuid.UUID  `db:"black_player_id"`
+	Status         string     `db:"status"`
+	WinnerID       *uuid.UUID `db:"winner_id"`
+	Result         *string    `db:"result"`
+	FinishedReason *string    `db:"finish_reason"`
+	DrawOfferBy    *uuid.UUID `db:"draw_offer_by"`
+	BoardState     []byte     `db:"board_state"`
+	CurrentTurn    string     `db:"current_turn"`
+	CreatedAt      time.Time  `db:"created_at"`
+	FinishedAt     *time.Time `db:"finished_at"`
 }
 
 func (r *PostgresGameRepository) CreateGame(ctx context.Context, game domain.Game) error {
@@ -44,10 +47,13 @@ func (r *PostgresGameRepository) CreateGame(ctx context.Context, game domain.Gam
 			black_player_id,
 			status,
 			winner_id,
+			result,
+			finish_reason,
+			draw_offer_by,
 			board_state,
 			current_turn
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
 
 	_, err = r.db.ExecContext(
@@ -58,6 +64,9 @@ func (r *PostgresGameRepository) CreateGame(ctx context.Context, game domain.Gam
 		game.BlackPlayerID,
 		game.Status,
 		game.WinnerID,
+		game.Result,
+		game.FinishReason,
+		game.DrawOfferBy,
 		boardState,
 		game.CurrentTurn,
 	)
@@ -73,6 +82,9 @@ func (r *PostgresGameRepository) GetGame(ctx context.Context, id uuid.UUID) (dom
 			black_player_id,
 			status,
 			winner_id,
+			result,
+			finish_reason,
+			draw_offer_by,
 			board_state,
 			current_turn,
 			created_at,
@@ -97,11 +109,32 @@ func (r *PostgresGameRepository) GetGame(ctx context.Context, id uuid.UUID) (dom
 		BlackPlayerID: row.BlackPlayerID,
 		Status:        domain.GameStatus(row.Status),
 		WinnerID:      row.WinnerID,
+		Result:        gameResultFromString(row.Result),
+		FinishReason:  finishReasonFromString(row.FinishedReason),
+		DrawOfferBy:   row.DrawOfferBy,
 		Snapshot:      snapshot,
 		CurrentTurn:   checkers.Color(row.CurrentTurn),
 		CreatedAt:     row.CreatedAt,
 		FinishedAt:    row.FinishedAt,
 	}, nil
+}
+
+func gameResultFromString(value *string) *domain.GameResult {
+	if value == nil {
+		return nil
+	}
+
+	result := domain.GameResult(*value)
+	return &result
+}
+
+func finishReasonFromString(value *string) *domain.FinishReason {
+	if value == nil {
+		return nil
+	}
+
+	reason := domain.FinishReason(*value)
+	return &reason
 }
 
 func (r *PostgresGameRepository) SaveGameState(ctx context.Context, game domain.Game) error {
@@ -115,9 +148,12 @@ func (r *PostgresGameRepository) SaveGameState(ctx context.Context, game domain.
 		SET
 			status = $2,
 			winner_id = $3,
-			board_state = $4,
-			current_turn = $5,
-			finished_at = $6
+			result = $4,
+			finish_reason = $5,
+			draw_offer_by = $6,
+			board_state = $7,
+			current_turn = $8,
+			finished_at = $9
 		WHERE id = $1
 	`
 
@@ -127,6 +163,9 @@ func (r *PostgresGameRepository) SaveGameState(ctx context.Context, game domain.
 		game.ID,
 		game.Status,
 		game.WinnerID,
+		game.Result,
+		game.FinishReason,
+		game.DrawOfferBy,
 		boardState,
 		game.CurrentTurn,
 		game.FinishedAt,
