@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -65,16 +67,21 @@ func main() {
 		}
 	}()
 
-	publicKey, err := appjwt.LoadRSAPublicKeyFromJWKS(
-		context.Background(),
+	jwksCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	publicKey, err := loadJWKSWithRetry(
+		jwksCtx,
 		cfg.JWKSURL,
 		cfg.JWTKeyID,
+		10,
+		2*time.Second,
 	)
 	if err != nil {
 		log.Fatalf("load jwks: %v", err)
 	}
 
-	verifier := appjwt.NewRS256Verifier(
+	tokenVerifier := appjwt.NewRS256Verifier(
 		publicKey,
 		cfg.JWTKeyID,
 		cfg.OIDCIssuer,
@@ -111,7 +118,7 @@ func main() {
 
 	r.Route("/api/v1/profiles", func(r chi.Router) {
 		r.Group(func(r chi.Router) {
-			r.Use(appjwt.Middleware(verifier))
+			r.Use(appjwt.Middleware(tokenVerifier))
 
 			r.Get("/me", profileHandler.GetMyProfile)
 			r.Patch("/me", profileHandler.UpdateMyProfile)
@@ -127,4 +134,39 @@ func main() {
 	if err := http.ListenAndServe(addr, r); err != nil {
 		log.Fatalf("http server: %v", err)
 	}
+}
+
+func loadJWKSWithRetry(
+	ctx context.Context,
+	jwksURL string,
+	keyID string,
+	attempts int,
+	delay time.Duration,
+) (*rsa.PublicKey, error) {
+	var lastErr error
+
+	for attempt := 1; attempt <= attempts; attempt++ {
+		publicKey, err := appjwt.LoadRSAPublicKeyFromJWKS(ctx, jwksURL, keyID)
+		if err == nil {
+			return publicKey, nil
+		}
+
+		lastErr = err
+
+		if attempt == attempts {
+			break
+		}
+
+		log.Printf("load jwks failed, retrying: attempt=%d/%d error=%v", attempt, attempts, err)
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	return nil, fmt.Errorf("load jwks after %d attempts: %w", attempts, lastErr)
 }
