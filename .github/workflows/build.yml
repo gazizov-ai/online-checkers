@@ -169,7 +169,7 @@ jobs:
           postgres_user="${POSTGRES_USER:-postgres}"
           postgres_db="${POSTGRES_DB:-checkers}"
 
-          kubectl -n "$namespace" create secret generic postgres-secret \
+          kubectl -n "$namespace" create secret generic postgres-runtime-secret \
             --from-literal=POSTGRES_USER="$postgres_user" \
             --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
             --from-literal=POSTGRES_DB="$postgres_db" \

@@ -4,7 +4,7 @@ image:
   pullPolicy: IfNotPresent
 
 auth:
-  existingSecret: postgres-secret
+  existingSecret: postgres-runtime-secret
 
 service:
   port: 5432

@@ -12,6 +12,7 @@
 
 # Secrets
 secrets/
+*.kubeconfig
 
 # Go coverage
 coverage.out
@@ -61,6 +62,7 @@ frontend/.vite/
 
 # Local generated files
 *.pid
+test-results/
 
 # Optional local docs/drafts
-docs/
+# docs/
