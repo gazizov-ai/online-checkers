@@ -339,13 +339,17 @@ const workflows = {
         auth: bearer("tokenB"),
         tests: [...common.okJSON, 'pm.test("fresh search cancelled", () => pm.expect(pm.response.json().status).to.eql("cancelled"));'],
       }),
-      request("User A observes same match", "GET", "{{matchmakingUrl}}/api/v1/matchmaking/status", {
+      request("User A consumes matched result", "GET", "{{matchmakingUrl}}/api/v1/matchmaking/status", {
         auth: bearer("tokenA"),
-        tests: [...common.okJSON, 'pm.test("same game for both players", () => { const body = pm.response.json(); pm.expect(body.status).to.eql("matched"); pm.expect(body.game_id).to.eql(pm.environment.get("gameId")); });'],
+        tests: [...common.okJSON, 'pm.test("consume-on-read returns the shared game once", () => { const body = pm.response.json(); pm.expect(body.status).to.eql("matched"); pm.expect(body.game_id).to.eql(pm.environment.get("gameId")); });'],
       }),
-      request("Matched search cannot be cancelled", "POST", "{{matchmakingUrl}}/api/v1/matchmaking/cancel", {
+      request("Consumed match cannot be replayed by status", "GET", "{{matchmakingUrl}}/api/v1/matchmaking/status", {
         auth: bearer("tokenA"),
-        tests: common.error(409, "already_matched"),
+        tests: [...common.okJSON, 'pm.test("second read returns virtual waiting state", () => { const body = pm.response.json(); pm.expect(body.status).to.eql("waiting"); pm.expect(body).not.to.have.property("game_id"); });'],
+      }),
+      request("Cancel after matched result was consumed is idempotent", "POST", "{{matchmakingUrl}}/api/v1/matchmaking/cancel", {
+        auth: bearer("tokenA"),
+        tests: [...common.okJSON, 'pm.test("nothing remains to cancel", () => pm.expect(pm.response.json().status).to.eql("cancelled"));'],
       }),
       request("User C waits independently", "POST", "{{matchmakingUrl}}/api/v1/matchmaking/search", {
         auth: bearer("tokenC"),

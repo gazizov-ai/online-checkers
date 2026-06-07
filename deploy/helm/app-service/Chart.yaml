@@ -1,0 +1,6 @@
+apiVersion: v2
+name: app-service
+description: Universal Helm chart for Online Checkers services
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

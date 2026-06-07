@@ -1,0 +1,26 @@
+# deploy/helm/values/rating.yaml
+nameOverride: rating-service
+
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8084
+      targetPort: 8084
+
+env:
+  SERVICE_NAME: rating-service
+  HTTP_PORT: "8084"
+  KAFKA_BROKERS: "redpanda:9092"
+  GAME_FINISHED_TOPIC: "game.finished"
+  RATING_CONSUMER_GROUP: "rating-service"
+
+secretEnv:
+  DATABASE_URL:
+    secretName: app-runtime-secrets
+    secretKey: database-url

@@ -1,0 +1,16 @@
+image:
+  repository: redpandadata/redpanda
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  kafkaPort: 9092
+  adminPort: 9644
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 384Mi
+  limits:
+    cpu: 500m
+    memory: 768Mi

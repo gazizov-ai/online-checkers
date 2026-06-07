@@ -1,0 +1,6 @@
+apiVersion: v2
+name: redpanda
+description: Minimal single-node Redpanda chart for Online Checkers
+type: application
+version: 0.1.0
+appVersion: "latest"

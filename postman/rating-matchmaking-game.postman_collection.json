@@ -406,7 +406,7 @@
           ]
         },
         {
-          "name": "User A observes same match",
+          "name": "User A consumes matched result",
           "request": {
             "method": "GET",
             "header": [],
@@ -430,14 +430,45 @@
                 "exec": [
                   "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
                   "pm.test(\"JSON response\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/json\"));",
-                  "pm.test(\"same game for both players\", () => { const body = pm.response.json(); pm.expect(body.status).to.eql(\"matched\"); pm.expect(body.game_id).to.eql(pm.environment.get(\"gameId\")); });"
+                  "pm.test(\"consume-on-read returns the shared game once\", () => { const body = pm.response.json(); pm.expect(body.status).to.eql(\"matched\"); pm.expect(body.game_id).to.eql(pm.environment.get(\"gameId\")); });"
                 ]
               }
             }
           ]
         },
         {
-          "name": "Matched search cannot be cancelled",
+          "name": "Consumed match cannot be replayed by status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{matchmakingUrl}}/api/v1/matchmaking/status",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenA}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"JSON response\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/json\"));",
+                  "pm.test(\"second read returns virtual waiting state\", () => { const body = pm.response.json(); pm.expect(body.status).to.eql(\"waiting\"); pm.expect(body).not.to.have.property(\"game_id\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel after matched result was consumed is idempotent",
           "request": {
             "method": "POST",
             "header": [],
@@ -459,8 +490,9 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
-                  "pm.test(\"error code already_matched\", () => { const body = pm.response.json(); pm.expect(body).to.have.nested.property(\"error.code\", \"already_matched\"); pm.expect(body.error.message).to.be.a(\"string\").and.not.empty; });"
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"JSON response\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/json\"));",
+                  "pm.test(\"nothing remains to cancel\", () => pm.expect(pm.response.json().status).to.eql(\"cancelled\"));"
                 ]
               }
             }

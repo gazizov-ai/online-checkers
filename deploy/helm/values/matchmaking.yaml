@@ -1,0 +1,27 @@
+nameOverride: matchmaking-service
+
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8082
+      targetPort: 8082
+
+env:
+  SERVICE_NAME: matchmaking-service
+  HTTP_PORT: "8082"
+  GAME_SERVICE_GRPC_ADDR: "game-service:9093"
+  OIDC_ISSUER: "http://auth-service:8081"
+  OIDC_AUDIENCE: "online-checkers"
+  JWKS_URL: "http://auth-service:8081/.well-known/jwks.json"
+  JWT_KEY_ID: "dev-key-1"
+
+secretEnv:
+  DATABASE_URL:
+    secretName: app-runtime-secrets
+    secretKey: database-url

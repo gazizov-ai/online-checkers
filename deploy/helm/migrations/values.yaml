@@ -1,0 +1,20 @@
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+databaseSecret:
+  name: app-runtime-secrets
+  key: database-url
+
+backoffLimit: 2
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 32Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi

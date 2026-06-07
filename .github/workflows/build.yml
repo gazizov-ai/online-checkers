@@ -1,0 +1,234 @@
+name: build-test-deploy
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: cr.yandex
+  GO_VERSION: "1.25.x"
+  NODE_VERSION: "24"
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install test tools
+        run: |
+          go install github.com/pressly/goose/v3/cmd/goose@v3.27.1
+          npm install --global newman@6
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Run backend and API tests
+        run: make test-all
+
+      - name: Upload Newman reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: newman-junit
+          path: test-results/newman/*.xml
+          if-no-files-found: warn
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: auth
+            context: .
+            dockerfile: services/auth/Dockerfile
+          - name: matchmaking
+            context: .
+            dockerfile: services/matchmaking/Dockerfile
+          - name: game
+            context: .
+            dockerfile: services/game/Dockerfile
+          - name: rating
+            context: .
+            dockerfile: services/rating/Dockerfile
+          - name: profile
+            context: .
+            dockerfile: services/profile/Dockerfile
+          - name: frontend
+            context: frontend
+            dockerfile: frontend/Dockerfile
+          - name: migrations
+            context: .
+            dockerfile: deploy/migrations/Dockerfile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Yandex Container Registry
+        if: github.event_name != 'pull_request'
+        uses: yc-actions/yc-cr-login@v3
+        with:
+          yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
+
+      - name: Build and optionally push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ env.REGISTRY }}/${{ vars.YC_REGISTRY_ID }}/online-checkers-${{ matrix.name }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  deploy:
+    name: Deploy production
+    needs: build
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    env:
+      KUBECONFIG: /tmp/kubeconfig
+      NAMESPACE: ${{ vars.K8S_NAMESPACE }}
+      REGISTRY_ID: ${{ vars.YC_REGISTRY_ID }}
+      POSTGRES_USER: ${{ vars.POSTGRES_USER }}
+      POSTGRES_DB: ${{ vars.POSTGRES_DB }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      JWT_PRIVATE_KEY: ${{ secrets.JWT_PRIVATE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure cluster access
+        env:
+          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+        run: |
+          printf '%s' "$KUBE_CONFIG_B64" | base64 --decode > "$KUBECONFIG"
+          chmod 600 "$KUBECONFIG"
+          kubectl version --client
+          namespace="${NAMESPACE:-online-checkers}"
+          kubectl -n "$namespace" auth can-i get pods
+
+      - name: Create runtime secrets
+        run: |
+          namespace="${NAMESPACE:-online-checkers}"
+          postgres_user="${POSTGRES_USER:-postgres}"
+          postgres_db="${POSTGRES_DB:-checkers}"
+
+          kubectl -n "$namespace" create secret generic postgres-secret \
+            --from-literal=POSTGRES_USER="$postgres_user" \
+            --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+            --from-literal=POSTGRES_DB="$postgres_db" \
+            --dry-run=client -o yaml \
+            | kubectl apply -f -
+
+          kubectl -n "$namespace" create secret generic app-runtime-secrets \
+            --from-literal=database-url="$DATABASE_URL" \
+            --dry-run=client -o yaml \
+            | kubectl apply -f -
+
+          kubectl -n "$namespace" create secret generic jwt-private-key \
+            --from-literal=jwt_private.pem="$JWT_PRIVATE_KEY" \
+            --dry-run=client -o yaml \
+            | kubectl apply -f -
+
+      - name: Deploy PostgreSQL and Redpanda
+        run: |
+          namespace="${NAMESPACE:-online-checkers}"
+
+          helm upgrade --install postgres deploy/helm/postgres \
+            --namespace "$namespace" \
+            --atomic \
+            --wait \
+            --timeout 10m
+
+          helm upgrade --install redpanda deploy/helm/redpanda \
+            --namespace "$namespace" \
+            --atomic \
+            --wait \
+            --timeout 10m
+
+      - name: Run database migrations
+        run: |
+          namespace="${NAMESPACE:-online-checkers}"
+
+          helm upgrade --install database-migrations deploy/helm/migrations \
+            --namespace "$namespace" \
+            --set-string image.repository="$REGISTRY/$REGISTRY_ID/online-checkers-migrations" \
+            --set-string image.tag="$GITHUB_SHA" \
+            --wait \
+            --timeout 10m
+
+      - name: Deploy backend services
+        run: |
+          namespace="${NAMESPACE:-online-checkers}"
+
+          for service in auth game matchmaking rating profile; do
+            helm upgrade --install "${service}-service" deploy/helm/app-service \
+              --namespace "$namespace" \
+              --values "deploy/helm/values/${service}.yaml" \
+              --set-string image.repository="$REGISTRY/$REGISTRY_ID/online-checkers-${service}" \
+              --set-string image.tag="$GITHUB_SHA" \
+              --atomic \
+              --wait \
+              --timeout 10m
+          done
+
+      - name: Deploy frontend
+        run: |
+          namespace="${NAMESPACE:-online-checkers}"
+
+          helm upgrade --install frontend deploy/helm/app-service \
+            --namespace "$namespace" \
+            --values deploy/helm/values/frontend.yaml \
+            --set-string image.repository="$REGISTRY/$REGISTRY_ID/online-checkers-frontend" \
+            --set-string image.tag="$GITHUB_SHA" \
+            --atomic \
+            --wait \
+            --timeout 10m
+
+      - name: Show deployment status
+        if: always()
+        run: |
+          namespace="${NAMESPACE:-online-checkers}"
+          kubectl -n "$namespace" get deployments,statefulsets,pods,services

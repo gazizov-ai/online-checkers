@@ -1,0 +1,32 @@
+nameOverride: game-service
+
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8083
+      targetPort: 8083
+    - name: grpc
+      port: 9093
+      targetPort: 9093
+
+env:
+  SERVICE_NAME: game-service
+  HTTP_PORT: "8083"
+  GRPC_PORT: "9093"
+  KAFKA_BROKERS: "redpanda:9092"
+  GAME_FINISHED_TOPIC: "game.finished"
+  OIDC_ISSUER: "http://auth-service:8081"
+  OIDC_AUDIENCE: "online-checkers"
+  JWKS_URL: "http://auth-service:8081/.well-known/jwks.json"
+  JWT_KEY_ID: "dev-key-1"
+
+secretEnv:
+  DATABASE_URL:
+    secretName: app-runtime-secrets
+    secretKey: database-url

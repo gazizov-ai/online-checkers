@@ -1,0 +1,38 @@
+nameOverride: auth-service
+
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081
+
+env:
+  SERVICE_NAME: auth-service
+  HTTP_PORT: "8081"
+  KAFKA_BROKERS: "redpanda:9092"
+  USER_REGISTERED_TOPIC: "user.registered"
+  OIDC_ISSUER: "http://auth-service:8081"
+  OIDC_AUDIENCE: "online-checkers"
+  JWT_KEY_ID: "dev-key-1"
+  JWT_PRIVATE_KEY_PATH: "/secrets/jwt_private.pem"
+
+secretEnv:
+  DATABASE_URL:
+    secretName: app-runtime-secrets
+    secretKey: database-url
+
+volumes:
+  - name: jwt-private-key
+    secret:
+      secretName: jwt-private-key
+
+volumeMounts:
+  - name: jwt-private-key
+    mountPath: /secrets
+    readOnly: true
