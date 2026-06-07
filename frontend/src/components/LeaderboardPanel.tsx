@@ -1,13 +1,20 @@
 import { RefreshCw, Trophy } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { getProfiles, profileName } from "../api/profile";
 import { getLeaderboard, getRating } from "../api/rating";
-import type { Rating, User } from "../types/domain";
+import type { Profile, Rating, User } from "../types/domain";
 import { friendlyApiError } from "../ui/labels";
 import { StatusPill } from "./StatusPill";
 
-export function LeaderboardPanel({ user }: { user: User }) {
+type LeaderboardPanelProps = {
+  onOpenProfile: (userId: string) => void;
+  user: User;
+};
+
+export function LeaderboardPanel({ onOpenProfile, user }: LeaderboardPanelProps) {
   const [items, setItems] = useState<Rating[]>([]);
   const [myRating, setMyRating] = useState<Rating | null>(null);
+  const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,6 +29,15 @@ export function LeaderboardPanel({ user }: { user: User }) {
       ]);
       setItems(leaderboard);
       setMyRating(rating);
+
+      try {
+        const loadedProfiles = await getProfiles(leaderboard.map((item) => item.user_id));
+        setProfiles(
+          Object.fromEntries(loadedProfiles.map((profile) => [profile.user_id, profile])),
+        );
+      } catch {
+        setProfiles({});
+      }
     } catch (err) {
       setError(friendlyApiError(err, "Не удалось загрузить рейтинг."));
     } finally {
@@ -66,7 +82,14 @@ export function LeaderboardPanel({ user }: { user: User }) {
         {items.map((item, index) => (
           <li className={item.user_id === user.id ? "is-current-user" : ""} key={item.user_id}>
             <span className="rank">{index + 1}</span>
-            <span className="player-id">{item.user_id.slice(0, 8)}</span>
+            <button
+              className="player-name-link"
+              onClick={() => onOpenProfile(item.user_id)}
+              title={profiles[item.user_id]?.username}
+              type="button"
+            >
+              {profileName(profiles[item.user_id])}
+            </button>
             <strong>{item.rating}</strong>
           </li>
         ))}

@@ -6,10 +6,13 @@ import { ProfilePanel } from "./components/ProfilePanel";
 import { AuthPage } from "./pages/AuthPage";
 import { GamePage } from "./pages/GamePage";
 import { LobbyPage } from "./pages/LobbyPage";
+import { ProfilePage } from "./pages/ProfilePage";
 
 export function App() {
   const { user, loading, logout } = useAuth();
   const [activeGameId, setActiveGameId] = useState<string | null>(null);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [profileReturnGameId, setProfileReturnGameId] = useState<string | null>(null);
   const [autoStartSearch, setAutoStartSearch] = useState(false);
 
   if (loading) {
@@ -41,6 +44,8 @@ export function App() {
           className="icon-button"
           onClick={() => {
             setActiveGameId(null);
+            setActiveProfileId(null);
+            setProfileReturnGameId(null);
             setAutoStartSearch(false);
             logout();
           }}
@@ -51,7 +56,27 @@ export function App() {
         </button>
       </header>
 
-      {activeGameId ? (
+      {activeProfileId ? (
+        <div className="workspace">
+          <ProfilePage
+            currentUser={user}
+            onBack={() => {
+              setActiveProfileId(null);
+              if (profileReturnGameId) {
+                setActiveGameId(profileReturnGameId);
+                setProfileReturnGameId(null);
+              }
+            }}
+            onOpenGame={(gameId) => {
+              setActiveProfileId(null);
+              setProfileReturnGameId(null);
+              setActiveGameId(gameId);
+            }}
+            onOpenProfile={setActiveProfileId}
+            userId={activeProfileId}
+          />
+        </div>
+      ) : activeGameId ? (
         <div className="workspace">
           <section className="primary-workspace">
             <GamePage
@@ -61,25 +86,31 @@ export function App() {
                 setActiveGameId(null);
               }}
               onLeave={() => setActiveGameId(null)}
+              onOpenProfile={(userId) => {
+                setProfileReturnGameId(activeGameId);
+                setActiveGameId(null);
+                setActiveProfileId(userId);
+              }}
               user={user}
             />
           </section>
         </div>
       ) : (
         <div className="dashboard-stack">
-          <section className="primary-workspace">
-            <LobbyPage
-              autoStartSearch={autoStartSearch}
-              onAutoStartConsumed={() => setAutoStartSearch(false)}
-              onGameFound={(gameId) => {
-                setAutoStartSearch(false);
-                setActiveGameId(gameId);
-              }}
-              user={user}
-            />
-          </section>
-          <LeaderboardPanel user={user} />
-          <ProfilePanel user={user} />
+          <div className="dashboard-main">
+            <section className="primary-workspace">
+              <LobbyPage
+                autoStartSearch={autoStartSearch}
+                onAutoStartConsumed={() => setAutoStartSearch(false)}
+                onGameFound={(gameId) => {
+                  setAutoStartSearch(false);
+                  setActiveGameId(gameId);
+                }}
+              />
+            </section>
+            <ProfilePanel onOpenProfile={setActiveProfileId} user={user} />
+          </div>
+          <LeaderboardPanel onOpenProfile={setActiveProfileId} user={user} />
         </div>
       )}
     </main>

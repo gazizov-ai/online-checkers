@@ -1,6 +1,5 @@
 import { Crown } from "lucide-react";
 import type { Color, GameSnapshot, Position } from "../types/domain";
-import { positionKey } from "../game/legalMoves";
 
 type BoardProps = {
   snapshot: GameSnapshot;
@@ -13,6 +12,10 @@ type BoardProps = {
 
 function displayIndex(index: number, playerColor?: Color): number {
   return playerColor === "black" ? 7 - index : index;
+}
+
+function positionKey(position: Position): string {
+  return `${position.row}:${position.col}`;
 }
 
 export function Board({
@@ -36,6 +39,9 @@ export function Board({
             const key = positionKey(position);
             const isLegalTarget = legalTargets.has(key);
             const isCaptureTarget = captureTargets.has(key);
+            const fileLabel = String.fromCharCode("a".charCodeAt(0) + col);
+            const rankLabel = String(8 - row);
+            const coordinateTone = isDark ? "coordinate--on-dark" : "coordinate--on-light";
 
             return (
               <button
@@ -51,6 +57,22 @@ export function Board({
                 onClick={() => onSquareClick(position)}
                 type="button"
               >
+                {displayRow === 7 ? (
+                  <span
+                    aria-hidden
+                    className={`coordinate coordinate--file ${coordinateTone}`}
+                  >
+                    {fileLabel}
+                  </span>
+                ) : null}
+                {displayCol === 7 ? (
+                  <span
+                    aria-hidden
+                    className={`coordinate coordinate--rank ${coordinateTone}`}
+                  >
+                    {rankLabel}
+                  </span>
+                ) : null}
                 {piece ? (
                   <span className={`piece piece--${piece.color}`}>
                     {piece.king ? <Crown aria-hidden size={18} strokeWidth={2.4} /> : null}

@@ -6,18 +6,16 @@ import {
   searchMatch,
 } from "../api/matchmaking";
 import { StatusPill } from "../components/StatusPill";
-import type { MatchmakingResponse, User } from "../types/domain";
+import type { MatchmakingResponse } from "../types/domain";
 import { friendlyApiError, matchmakingStatusLabel } from "../ui/labels";
 
 type LobbyPageProps = {
-  user: User;
   onGameFound: (gameId: string) => void;
   autoStartSearch?: boolean;
   onAutoStartConsumed?: () => void;
 };
 
 export function LobbyPage({
-  user,
   onGameFound,
   autoStartSearch = false,
   onAutoStartConsumed,
@@ -104,10 +102,7 @@ export function LobbyPage({
   return (
     <section className="lobby-panel">
       <div className="panel-heading">
-        <div>
-          <h2>Лобби</h2>
-          <p>{user.username}</p>
-        </div>
+        <h2>Лобби</h2>
         {matchmaking ? (
           <StatusPill tone={searching ? "warn" : "neutral"}>
             {matchmakingStatusLabel(matchmaking.status)}
@@ -116,13 +111,14 @@ export function LobbyPage({
       </div>
 
       <div className="action-row">
-        <button className="primary-button" disabled={busy || searching} onClick={() => void startSearch()} type="button">
-          <Search aria-hidden size={18} />
-          Найти игру
-        </button>
-        <button className="ghost-button" disabled={busy || !searching} onClick={() => void cancelSearch()} type="button">
-          <X aria-hidden size={18} />
-          Отмена
+        <button
+          className={searching ? "ghost-button matchmaking-toggle" : "primary-button matchmaking-toggle"}
+          disabled={busy}
+          onClick={() => void (searching ? cancelSearch() : startSearch())}
+          type="button"
+        >
+          {searching ? <X aria-hidden size={18} /> : <Search aria-hidden size={18} />}
+          {searching ? "Отменить поиск" : "Найти игру"}
         </button>
       </div>
 
