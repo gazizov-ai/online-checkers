@@ -1,0 +1,15 @@
+issuer:
+  name: letsencrypt-ip
+  email: ""
+  server: https://acme-v02.api.letsencrypt.org/directory
+  profile: shortlived
+  ingressClassName: nginx
+
+certificate:
+  name: frontend-tls
+  secretName: frontend-tls
+  ipAddress: ""
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always

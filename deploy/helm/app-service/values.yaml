@@ -16,6 +16,17 @@ service:
       port: 80
       targetPort: 8080
 
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  serverAlias: ""
+  host: ""
+  path: /
+  pathType: Prefix
+  servicePort: http
+  tls: []
+
 env: {}
 
 secretEnv: {}

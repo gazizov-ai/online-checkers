@@ -1,0 +1,17 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ .Values.issuer.name }}
+spec:
+  acme:
+    {{- with .Values.issuer.email }}
+    email: {{ . | quote }}
+    {{- end }}
+    server: {{ .Values.issuer.server }}
+    profile: {{ .Values.issuer.profile }}
+    privateKeySecretRef:
+      name: {{ .Values.issuer.name }}-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: {{ .Values.issuer.ingressClassName }}
