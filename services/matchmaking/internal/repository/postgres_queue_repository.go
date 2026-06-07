@@ -86,14 +86,33 @@ func (r *PostgresQueueRepository) EnqueueOrReservePair(
 	err = tx.GetContext(ctx, &existing, checkExistingQuery, userID)
 
 	if err == nil {
-		if err := tx.Commit(); err != nil {
-			return ReservationResult{}, err
-		}
+		switch domain.SearchStatus(existing.Status) {
+		case domain.StatusWaiting, domain.StatusMatching:
+			if err := tx.Commit(); err != nil {
+				return ReservationResult{}, err
+			}
 
-		return ReservationResult{
-			Status: domain.SearchStatus(existing.Status),
-			GameID: existing.GameID,
-		}, nil
+			return ReservationResult{
+				Status: domain.SearchStatus(existing.Status),
+				GameID: existing.GameID,
+			}, nil
+
+		case domain.StatusMatched:
+			deleteMatchedQuery := `
+				DELETE FROM matchmaking_queue
+				WHERE user_id = $1
+					AND status = 'matched'
+			`
+
+			if _, err := tx.ExecContext(ctx, deleteMatchedQuery, userID); err != nil {
+				return ReservationResult{}, err
+			}
+
+			err = sql.ErrNoRows
+
+		default:
+			return ReservationResult{}, fmt.Errorf("unknown matchmaking status: %s", existing.Status)
+		}
 	}
 
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -249,7 +268,7 @@ func (r *PostgresQueueRepository) Cancel(
 	cancelQueueingQuery := `
 		DELETE FROM matchmaking_queue
 		WHERE user_id = $1
-			AND status = 'waiting'
+			AND status IN ('waiting', 'matched')
 	`
 
 	_, err := r.db.ExecContext(ctx, cancelQueueingQuery, userID)
@@ -272,4 +291,31 @@ func (r *PostgresQueueRepository) CleanupStaleReservations(
 
 	_, err := r.db.ExecContext(ctx, query, int(olderThan.Seconds()))
 	return err
+}
+
+func (r *PostgresQueueRepository) ConsumeMatchedByUserID(
+	ctx context.Context,
+	userID uuid.UUID,
+) (*domain.QueueEntry, error) {
+	query := `
+		DELETE FROM matchmaking_queue
+		WHERE user_id = $1
+			AND status = 'matched'
+		RETURNING user_id, status, game_id
+	`
+
+	var row queueRow
+	if err := r.db.GetContext(ctx, &row, query, userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+
+		return nil, err
+	}
+
+	return &domain.QueueEntry{
+		UserID: row.UserID,
+		Status: domain.SearchStatus(row.Status),
+		GameID: row.GameID,
+	}, nil
 }

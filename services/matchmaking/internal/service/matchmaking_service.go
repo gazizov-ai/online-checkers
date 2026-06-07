@@ -91,6 +91,18 @@ func (s *MatchmakingService) Status(
 	ctx context.Context,
 	userID uuid.UUID,
 ) (SearchResult, error) {
+	matchedEntry, err := s.repo.ConsumeMatchedByUserID(ctx, userID)
+	if err != nil {
+		return SearchResult{}, err
+	}
+
+	if matchedEntry != nil {
+		return SearchResult{
+			Status: matchedEntry.Status,
+			GameID: matchedEntry.GameID,
+		}, nil
+	}
+
 	entry, err := s.repo.GetByUserID(ctx, userID)
 	if err != nil {
 		return SearchResult{}, err
@@ -127,10 +139,6 @@ func (s *MatchmakingService) Cancel(
 
 	if entry == nil {
 		return nil
-	}
-
-	if entry.Status == domain.StatusMatched {
-		return ErrAlreadyMatched
 	}
 
 	if entry.Status == domain.StatusMatching {
